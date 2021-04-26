@@ -32,10 +32,52 @@ static kernel_pid_t _recv_pid;
 
 static char message[128];
 static sx127x_t sx127x;
+static bool sx127x_power = 0;
 static uint16_t emb_network = 1;
 static uint16_t emb_address = 1;
 static uint16_t emb_counter = 0;
 static bool emb_sniff = false;
+
+int lora_power_cmd(int argc, char **argv)
+{
+
+    if (argc != 2) {
+        puts("usage: power on|off");
+        return -1;
+    }
+
+    if (strcmp(argv[1], "on") == 0) {
+        if (sx127x_power) {
+            puts("Radio already on");
+            return -1;
+        }
+        gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
+        gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+        spi_init(sx127x.params.spi);
+        netdev_t *netdev = (netdev_t *)&sx127x;
+        if (netdev->driver->init(netdev) < 0) {
+            puts("Failed to reinitialize SX127x device, exiting");
+            return -1;
+        }
+        sx127x_power = 1;
+    } else if(strcmp(argv[1], "off") == 0) {
+        if (!sx127x_power) {
+            puts("Radio already off");
+            return -1;
+        }
+        sx127x_reset(&sx127x);
+        sx127x_set_sleep(&sx127x);
+        spi_release(sx127x.params.spi);
+        spi_deinit_pins(sx127x.params.spi);
+        gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PU);
+
+        sx127x_power = 0;
+    } else {
+        puts("usage: power on|off");
+        return -1;
+    }
+    return 0;
+}
 
 int lora_setup_cmd(int argc, char **argv)
 {
@@ -45,6 +87,11 @@ int lora_setup_cmd(int argc, char **argv)
              "<bandwidth (125, 250, 500)> "
              "<spreading factor (7..12)> "
              "<code rate (5..8)>");
+        return -1;
+    }
+
+    if (!sx127x_power) {
+        puts("Radio is off");
         return -1;
     }
 
@@ -109,6 +156,11 @@ int boost_cmd(int argc, char **argv)
         return -1;
     }
 
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
     if (strstr(argv[1], "get") != NULL) {
         bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
         printf("Boost mode: %s\n", boost ? "set" : "cleared");
@@ -151,6 +203,11 @@ int txpower_cmd(int argc, char **argv)
         return -1;
     }
 
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
     if (strstr(argv[1], "get") != NULL) {
         uint8_t txpower = sx127x_get_tx_power(&sx127x);
         printf("Transmission power: %d\n", txpower);
@@ -174,12 +231,18 @@ int txpower_cmd(int argc, char **argv)
 
     return 0;
 }
+
 int send_cmd(int argc, char **argv)
 {
     uint16_t dst = 0xffff; // broadcast by default
 
     if (argc <= 1) {
         puts("usage: send <payload> [<dst>]");
+        return -1;
+    }
+
+    if (!sx127x_power) {
+        puts("Radio is off");
         return -1;
     }
 
@@ -224,6 +287,11 @@ int listen_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
     netdev_t *netdev = (netdev_t *)&sx127x;
     /* Switch to continuous listen mode */
     const netopt_enable_t single = false;
@@ -244,6 +312,11 @@ int channel_cmd(int argc, char **argv)
 {
     if (argc < 2) {
         puts("usage: channel <get|set>");
+        return -1;
+    }
+
+    if (!sx127x_power) {
+        puts("Radio is off");
         return -1;
     }
 
@@ -281,6 +354,11 @@ int network_cmd(int argc, char **argv)
         return -1;
     }
 
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
     if (strstr(argv[1], "get") != NULL) {
         printf("Network: %u\n", emb_network);
         return 0;
@@ -306,6 +384,11 @@ int address_cmd(int argc, char **argv)
 {
     if (argc < 2) {
         puts("usage: address <get|set>");
+        return -1;
+    }
+
+    if (!sx127x_power) {
+        puts("Radio is off");
         return -1;
     }
 
@@ -337,6 +420,11 @@ int sniff_cmd(int argc, char **argv)
         return -1;
     }
 
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
     if (strstr(argv[1], "get") != NULL) {
         printf("Sniff mode: %s\n", emb_sniff ? "set" : "cleared");
         return 0;
@@ -359,6 +447,7 @@ int sniff_cmd(int argc, char **argv)
 }
 
 static const shell_command_t shell_commands[] = {
+    { "power",    "Start/stop LoRa module",                  lora_power_cmd },
     { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
@@ -471,12 +560,6 @@ int main(void)
     sx127x.params = sx127x_params[0];
     netdev_t *netdev = (netdev_t *)&sx127x;
     netdev->driver = &sx127x_driver;
-
-    if (netdev->driver->init(netdev) < 0) {
-        puts("Failed to initialize SX127x device, exiting");
-        return 1;
-    }
-
     netdev->event_callback = _event_cb;
 
     _recv_pid = thread_create(stack, sizeof(stack), THREAD_PRIORITY_MAIN - 1,

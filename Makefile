@@ -15,7 +15,7 @@ USEMODULE += fmt
 USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
-USEMODULE += xtimer
+USEMODULE += periph_spi_reconfigure
 USEMODULE += sx1276
 
 include $(RIOTBASE)/Makefile.include

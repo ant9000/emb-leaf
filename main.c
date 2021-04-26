@@ -14,6 +14,7 @@
 
 #include "board.h"
 
+#include "sx127x.h"
 #include "sx127x_internal.h"
 #include "sx127x_params.h"
 #include "sx127x_netdev.h"
@@ -101,6 +102,78 @@ int lora_setup_cmd(int argc, char **argv)
     return 0;
 }
 
+int boost_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: boost <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
+        printf("Boost mode: %s\n", boost ? "set" : "cleared");
+        return 0;
+    }
+
+    if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: boost set <on|off>");
+            return -1;
+        }
+        bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
+        if (strstr(argv[2],"on") != NULL) {
+            if (!boost) {
+                sx127x.params.paselect = SX127X_PA_BOOST;
+                gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+                boost = !boost;
+            }
+        } else {
+            if (boost) {
+                sx127x.params.paselect = SX127X_PA_RFO;
+                gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+                boost = !boost;
+            }
+        }
+        printf("Boost mode %s\n", boost ? "set" : "cleared");
+    }
+    else {
+        puts("usage: boost <get|set>");
+        return -1;
+    }
+
+    return 0;
+}
+
+int txpower_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: txpower <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        uint8_t txpower = sx127x_get_tx_power(&sx127x);
+        printf("Transmission power: %d\n", txpower);
+        return 0;
+    }
+
+    if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: txpower set <power>");
+            return -1;
+        }
+        uint8_t txpower = atoi(argv[2]);
+        sx127x_set_tx_power(&sx127x, txpower);
+        txpower = sx127x_get_tx_power(&sx127x);
+        printf("Transmission power set to: %d\n", txpower);
+    }
+    else {
+        puts("usage: txpower <get|set>");
+        return -1;
+    }
+
+    return 0;
+}
 int send_cmd(int argc, char **argv)
 {
     uint16_t dst = 0xffff; // broadcast by default
@@ -290,6 +363,8 @@ static const shell_command_t shell_commands[] = {
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
     { "address",  "Get/Set network address",                 address_cmd },
+    { "boost",    "Get/Set power boost mode",                boost_cmd },
+    { "txpower",  "Get/Set transmission power",              txpower_cmd },
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },

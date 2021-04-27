@@ -51,8 +51,10 @@ int lora_power_cmd(int argc, char **argv)
             puts("Radio already on");
             return -1;
         }
+#ifdef BOARD_SAMR34_XPRO
         gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
         gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+#endif
         spi_init(sx127x.params.spi);
         netdev_t *netdev = (netdev_t *)&sx127x;
         if (netdev->driver->init(netdev) < 0) {
@@ -69,8 +71,9 @@ int lora_power_cmd(int argc, char **argv)
         sx127x_set_sleep(&sx127x);
         spi_release(sx127x.params.spi);
         spi_deinit_pins(sx127x.params.spi);
+#ifdef BOARD_SAMR34_XPRO
         gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PU);
-
+#endif
         sx127x_power = 0;
     } else {
         puts("usage: power on|off");
@@ -149,6 +152,7 @@ int lora_setup_cmd(int argc, char **argv)
     return 0;
 }
 
+#ifdef BOARD_SAMR34_XPRO
 int boost_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -195,6 +199,7 @@ int boost_cmd(int argc, char **argv)
 
     return 0;
 }
+#endif
 
 int txpower_cmd(int argc, char **argv)
 {
@@ -446,17 +451,99 @@ int sniff_cmd(int argc, char **argv)
     return 0;
 }
 
+#ifdef CPU_SAML21
+int debug_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    puts("Oscillators:");
+    if (OSCCTRL->XOSCCTRL.reg & 2) { puts(" OSCCTRL->XOSCMCTRL.ENABLE = 1"); }
+    if (OSCCTRL->OSC16MCTRL.reg & 2) {
+        puts(" OSCCTRL->OSC16MCTRL.ENABLE = 1");
+        printf(" OSCCTRL->OSC16MCTRL.FSEL   = %d\n", (OSCCTRL->OSC16MCTRL.reg >> 2) & 0x03);
+    }
+    if (OSCCTRL->DFLLCTRL.reg & 2) { puts(" OSCCTRL->DFLLCTRL.ENABLE = 1"); }
+    if (OSCCTRL->DPLLCTRLA.reg  & 2 ) { puts(" OSCCTRL->DPLLCTRLA.ENABLE = 1"); }
+    if (OSC32KCTRL->XOSC32K.reg & 2) { puts(" OSC32KCTRL->XOSC32K.ENABLE = 1"); }
+    if (OSC32KCTRL->OSC32K.reg & 2) { puts(" OSC32KCTRL->OSC32K.ENABLE  = 1"); }
+    printf(" OSC32KCTRL->RTCCTRL.RTCSEL = %d\n", (uint8_t)(OSC32KCTRL->RTCCTRL.reg  & 0x07));
+
+    puts("Clock generators:");
+    for(int i=0; i<9; i++) {
+        if (GCLK->GENCTRL[i].reg & GCLK_GENCTRL_GENEN) {
+            printf(" GCLK->GENCTRL[%02d].SRC = %d\n", i, (uint8_t)(GCLK->GENCTRL[i].reg & 0x0F));
+        }
+    }
+    for(int i=0; i<35; i++) {
+        if (GCLK->PCHCTRL[i].reg & GCLK_PCHCTRL_CHEN) {
+            printf(" GCLK->PCHCTRL[%02d].SRC = %d\n", i, (uint8_t)(GCLK->PCHCTRL[i].reg & 0x07));
+        }
+    }
+
+    puts("Main clock:");
+    printf(" MCLK->AHBMASK  = 0x%08lx\n", MCLK->AHBMASK.reg);
+    printf(" MCLK->APBAMASK = 0x%08lx\n", MCLK->APBAMASK.reg);
+    printf(" MCLK->APBBMASK = 0x%08lx\n", MCLK->APBBMASK.reg);
+    printf(" MCLK->APBCMASK = 0x%08lx\n", MCLK->APBCMASK.reg);
+    printf(" MCLK->APBDMASK = 0x%08lx\n", MCLK->APBDMASK.reg);
+    printf(" MCLK->APBEMASK = 0x%08lx\n", MCLK->APBEMASK.reg);
+
+
+    puts("Power manager:");
+    printf(" PM->CTRLA.IORET        = %d\n", (PM->CTRLA.reg & 4) ? 1 : 0);
+    printf(" PM->SLEEPCFG.SLEEPMODE = %d\n", PM->SLEEPCFG.reg & 0x07);
+    printf(" PM->PLCFG.PLSEL        = %d\n", PM->PLCFG.reg & 0x03);
+
+    puts("GPIO:");
+    for (int i=0; i<4; i++) {
+        for (int j=0; j<32; j++) {
+            if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
+                printf(" P%c.%02d: ", 'A' + i, j);
+            }
+            if (PORT->Group[i].PINCFG[j].reg & PORT_PINCFG_PMUXEN) {
+                printf("MUX%c", 'A' + (((PORT->Group[i].PMUX[j/2].reg >> 4*(j % 2))) & 0x0f));
+            }else if (PORT->Group[i].DIR.reg & (1 << j)){
+                printf("OUT ");
+                if (PORT->Group[i].PINCFG[j].reg & PORT_PINCFG_DRVSTR) {
+                    printf("DRVSTR ");
+                }
+                printf("value=%d", (PORT->Group[i].OUT.reg & (1 << j)) ? 1 : 0);
+            }else if (PORT->Group[i].PINCFG[j].reg) {
+                printf("IN ");
+                if (PORT->Group[i].PINCFG[j].reg & PORT_PINCFG_PULLEN) {
+                    printf("PULL%s ", (PORT->Group[i].OUT.reg & (1 << j)) ? "UP" : "DOWN");
+                }
+                if ((PORT->Group[i].PINCFG[j].reg & PORT_PINCFG_INEN) == 0) {
+                    printf("DISABLED ");
+                }
+                printf("value=%d", (PORT->Group[i].IN.reg & (1 << j)) ? 1 : 0);
+            }
+            if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
+                printf("\n");
+            }
+        }
+    }
+    return 0;
+}
+#endif
+
 static const shell_command_t shell_commands[] = {
     { "power",    "Start/stop LoRa module",                  lora_power_cmd },
     { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
     { "address",  "Get/Set network address",                 address_cmd },
+#ifdef BOARD_SAMR34_XPRO
     { "boost",    "Get/Set power boost mode",                boost_cmd },
+#endif
     { "txpower",  "Get/Set transmission power",              txpower_cmd },
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
+#ifdef CPU_SAML21
+    { "debug",    "Show SAML21 peripherals config",          debug_cmd },
+#endif
     { NULL, NULL, NULL }
 };
 

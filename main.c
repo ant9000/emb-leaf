@@ -12,6 +12,9 @@
 #include "net/netdev/lora.h"
 #include "net/lora.h"
 
+#include "periph/rtt.h"
+#include "periph/pm.h"
+
 #include "board.h"
 
 #include "sx127x.h"
@@ -452,6 +455,26 @@ int sniff_cmd(int argc, char **argv)
 }
 
 #ifdef CPU_SAML21
+int sleep_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: sleep <seconds>");
+        return -1;
+    }
+
+    uint32_t seconds = atoi(argv[1]);
+
+    // schedule an alarm to wake us up
+    // TODO: on wakeup USB is broken (while UART works)
+    rtt_set_counter(0);
+    rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
+
+    // enter backup mode
+    pm_set(0);
+
+    return 0;
+}
+
 int debug_cmd(int argc, char **argv)
 {
     (void)argc;
@@ -542,6 +565,7 @@ static const shell_command_t shell_commands[] = {
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
 #ifdef CPU_SAML21
+    { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
 #endif
     { NULL, NULL, NULL }

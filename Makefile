@@ -17,5 +17,6 @@ USEMODULE += shell_commands
 USEMODULE += ps
 USEMODULE += periph_spi_reconfigure
 USEMODULE += sx1276
+USEMODULE += saul_default
 
 include $(RIOTBASE)/Makefile.include

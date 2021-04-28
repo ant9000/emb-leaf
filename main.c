@@ -682,6 +682,13 @@ int main(void)
         return 1;
     }
 
+    // power on the radio at boot
+    if (netdev->driver->init(netdev) < 0) {
+        puts("Failed to reinitialize SX127x device, exiting");
+        return -1;
+    }
+    sx127x_power = 1;
+
     /* start the shell */
     puts("Initialization successful - starting the shell now");
     char line_buf[SHELL_DEFAULT_BUFSIZE];

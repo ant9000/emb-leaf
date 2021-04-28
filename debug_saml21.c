@@ -130,19 +130,35 @@ void debug_saml21(void)
                         printf(" OUT value=%d", (PORT->Group[i].OUT.reg & (1 << j)) ? 1 : 0);
                     }else{
                         printf(" IN value=%d", (PORT->Group[i].IN.reg & (1 << j)) ? 1 : 0);
-                        if ((PORT->Group[i].PINCFG[j].bit.INEN) == 0) {
-                            printf(" DISABLED ");
-                        }
-                    }
-                    if (PORT->Group[i].PINCFG[j].bit.DRVSTR) {
-                        printf(" DRVSTR ");
                     }
                     if (PORT->Group[i].PINCFG[j].bit.PULLEN) {
-                        printf(" PULL%s ", (PORT->Group[i].OUT.reg & (1 << j)) ? "UP" : "DOWN");
+                        printf(" PULL%s", (PORT->Group[i].OUT.reg & (1 << j)) ? "UP" : "DOWN");
+                    }
+                    if ((PORT->Group[i].PINCFG[j].bit.INEN)) {
+                        printf(" INEN");
+                    }
+                    if (PORT->Group[i].CTRL.bit.SAMPLING & (1 << j)) {
+                        printf(" SAMPLING");
+                    }
+                    if (PORT->Group[i].PINCFG[j].bit.DRVSTR) {
+                        printf(" DRVSTR");
                     }
                 }
                 puts("");
             }
+        }
+        char *event_actions[] = { "OUT", "SET", "CLR", "TGL" };
+        if (PORT->Group[i].EVCTRL.bit.PORTEI0) {
+            printf("P%c: event=0, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT0], PORT->Group[i].EVCTRL.bit.PID0);
+        }
+        if (PORT->Group[i].EVCTRL.bit.PORTEI1) {
+            printf("P%c: event=1, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT1], PORT->Group[i].EVCTRL.bit.PID1);
+        }
+        if (PORT->Group[i].EVCTRL.bit.PORTEI2) {
+            printf("P%c: event=2, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT2], PORT->Group[i].EVCTRL.bit.PID2);
+        }
+        if (PORT->Group[i].EVCTRL.bit.PORTEI3) {
+            printf("P%c: event=3, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT3], PORT->Group[i].EVCTRL.bit.PID3);
         }
     }
 }

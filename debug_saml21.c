@@ -61,7 +61,6 @@ void debug_saml21(void)
     if (OSC32KCTRL->OSCULP32K.bit.WRTLOCK) {
         puts(" OSC32KCTRL->OSCULP32K WRTLOCK");
     }
-
     char *rtc_sources[] = { "ULP1K", "ULP32K", "OSC1K", "OSC32K", "XOSC1K", "XOSC32K" };
     printf(" OSC32KCTRL->RTCCTRL.RTCSEL = %s\n", rtc_sources[OSC32KCTRL->RTCCTRL.bit.RTCSEL]);
 
@@ -95,9 +94,22 @@ void debug_saml21(void)
             puts("");
         }
     }
+    char *gclk_ids[] = {
+        "OSCCTRL_GCLK_ID_DFLL48", "OSCCTRL_GCLK_ID_FDPLL", "OSCCTRL_GCLK_ID_FDPLL32K",
+        "EIC_GCLK_ID", "USB_GCLK_ID",
+        "EVSYS_GCLK_ID_0", "EVSYS_GCLK_ID_1", "EVSYS_GCLK_ID_2", "EVSYS_GCLK_ID_3",
+        "EVSYS_GCLK_ID_4", "EVSYS_GCLK_ID_5", "EVSYS_GCLK_ID_6", "EVSYS_GCLK_ID_7",
+        "EVSYS_GCLK_ID_8", "EVSYS_GCLK_ID_9", "EVSYS_GCLK_ID_10", "EVSYS_GCLK_ID_11",
+        "SERCOMx_GCLK_ID_SLOW", "SERCOM0_GCLK_ID_CORE", "SERCOM1_GCLK_ID_CORE",
+        "SERCOM2_GCLK_ID_CORE", "SERCOM3_GCLK_ID_CORE", "SERCOM4_GCLK_ID_CORE",
+        "SERCOM5_GCLK_ID_SLOW", "SERCOM5_GCLK_ID_CORE",
+        "TCC0_GCLK_ID, TCC1_GCLK_ID", "TCC2_GCLK_ID", "TC0_GCLK_ID, TC1_GCLK_ID",
+        "TC2_GCLK_ID, TC3_GCLK_ID", "TC4_GCLK_ID", "ADC_GCLK_ID", "AC_GCLK_ID",
+        "DAC_GCLK_ID", "PTC_GCLK_ID", "CCL_GCLK_ID", "NVMCTRL_GCLK_ID",
+    };
     for(int i=0; i<36; i++) {
         if (GCLK->PCHCTRL[i].bit.CHEN) {
-            printf(" GCLK->PCHCTRL[%02d].SRC = %d", i, GCLK->PCHCTRL[i].bit.GEN);
+            printf(" GCLK->PCHCTRL[%02d].SRC = %d [%s]", i, GCLK->PCHCTRL[i].bit.GEN, gclk_ids[i]);
             if(GCLK->PCHCTRL[i].bit.WRTLOCK) { printf(" WRTLOCK"); }
             puts("");
         }
@@ -117,6 +129,51 @@ void debug_saml21(void)
     char *sleep_modes[] = { "-", "-", "IDLE", "-", "STANDBY", "BACKUP", "OFF", "-" };
     printf(" PM->SLEEPCFG.SLEEPMODE = %s\n", sleep_modes[PM->SLEEPCFG.bit.SLEEPMODE]);
     printf(" PM->PLCFG.PLSEL        = PL%d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " PLDIS" : "");
+
+    puts("Supply controller:");
+    if (SUPC->BOD33.bit.ENABLE) {
+        char *bod33_actions[] = { "NONE", "RESET", "INT", "BKUP" };
+        printf(" SUPC->BOD33 = BKUPLEVEL:%d LEVEL:%d PSEL:%d %s %s %s",
+            SUPC->BOD33.bit.BKUPLEVEL,
+            (2 << SUPC->BOD33.bit.LEVEL),
+            SUPC->BOD33.bit.PSEL,
+            SUPC->BOD33.bit.VMON ? "VDD" : "VBAT",
+            SUPC->BOD33.bit.ACTCFG ? "CONTINUOUS" : "SAMPLING",
+            bod33_actions[SUPC->BOD33.bit.ACTION]
+        );
+        if (SUPC->BOD33.bit.RUNBKUP) { printf(" RUNBKUP"); }
+        if (SUPC->BOD33.bit.RUNSTDBY) { printf(" RUNSTBY"); }
+        if (SUPC->BOD33.bit.HYST) { printf(" HYST"); }
+        puts("");
+    }
+    if (SUPC->VREG.bit.ENABLE) {
+        printf(" SUPC->VREG = VSPER:%d VSVSTEP:%d LPEFF:%s",
+            SUPC->VREG.bit.VSPER,
+            SUPC->VREG.bit.VSVSTEP,
+            SUPC->VREG.bit.LPEFF ? "full" : "limited"
+        );
+        if (SUPC->VREG.bit.RUNSTDBY) { printf(" RUNSTBY"); }
+        if (SUPC->VREG.bit.STDBYPL0) { printf(" STBYPL0"); }
+        puts(SUPC->VREG.bit.SEL ? " LDO" : " BUCK");
+    }
+    char *vref_selections[] = { "1.024V", "", "2.048V", "4.096V", "", "", "", "" };
+    printf(" SUPC->VREF = %s", vref_selections[SUPC->VREF.bit.SEL]);
+    if (SUPC->VREF.bit.ONDEMAND) { printf(" ONDEMAND"); }
+    if (SUPC->VREF.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
+    if (SUPC->VREF.bit.VREFOE) { printf(" VREFOE"); }
+    if (SUPC->VREF.bit.TSEN) { printf(" TSEN"); }
+    puts("");
+    printf(" SUPC->BBPS =");
+    if (SUPC->BBPS.bit.PSOKEN) { printf(" PSOKEN"); }
+    if (SUPC->BBPS.bit.WAKEEN) { printf(" WAKEEN"); }
+    char *bbps_configs[] = { "NONE", "AWPS", "FORCED", "BOD33" };
+    printf(" CONF:%s\n", bbps_configs[SUPC->BBPS.bit.CONF]);
+    if (SUPC->BKOUT.bit.EN) {
+        printf(" SUPC->BKOUT");
+        if (SUPC->BKOUT.bit.RTCTGL) { printf(" RTCTGL"); }
+        if (SUPC->BKOUT.bit.EN & 0x01) { printf(" OUT[0]"); }
+        if (SUPC->BKOUT.bit.EN & 0x02) { printf(" OUT[1]"); }
+    }
 
     puts("GPIO:");
     for (int i=0; i<4; i++) {

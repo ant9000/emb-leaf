@@ -460,18 +460,32 @@ int sniff_cmd(int argc, char **argv)
 int sleep_cmd(int argc, char **argv)
 {
     if (argc < 2) {
-        puts("usage: sleep <seconds>");
+        puts("usage: sleep [<seconds>|pin <num>]");
         return -1;
     }
 
-    uint32_t seconds = atoi(argv[1]);
+    if ((strcmp(argv[1], "pin") == 0)){
+        if (argc < 3) {
+            puts("usage: sleep [<seconds>|pin <num>]");
+            return -1;
+        }
+        uint8_t btn = atoi(argv[2]) & 0x0F;
+        if (btn > 7) {
+            puts("Available pins: 0 - 7 only.");
+            return -1;
+        }
+        printf("Enabling PA%02d as external wakeup pin.\n", btn);
+        gpio_init(GPIO_PIN(PA, btn), GPIO_IN_PU);
+        RSTC->WKEN.reg = 1 << btn;
+        RSTC->WKPOL.reg = 0;
+    } else {
+        uint32_t seconds = atoi(argv[1]);
+        printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
+        rtt_set_counter(0);
+        rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
+    }
 
-    // schedule an alarm to wake us up
-    // TODO: on wakeup USB is broken (while UART works)
-    rtt_set_counter(0);
-    rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
-
-    // enter backup mode
+    puts("Now entering backup mode.");
     pm_set(0);
 
     return 0;

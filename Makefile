@@ -1,6 +1,6 @@
 APPLICATION = emb-leaf
 BOARD ?= samr34-xpro
-RIOTBASE ?= $(CURDIR)/../riot
+RIOTBASE ?= $(CURDIR)/../RIOT
 QUIET ?= 1
 DEVELHELP ?= 1
 

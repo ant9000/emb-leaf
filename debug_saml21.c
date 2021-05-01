@@ -117,12 +117,24 @@ void debug_saml21(void)
 
     puts("Main clock:");
     printf(" MCLK->CPUDIV   = GCLK_MAIN/%d\n", MCLK->CPUDIV.reg);
-    printf(" MCLK->AHBMASK  = 0x%08lx\n", MCLK->AHBMASK.reg);
-    printf(" MCLK->APBAMASK = 0x%08lx\n", MCLK->APBAMASK.reg);
-    printf(" MCLK->APBBMASK = 0x%08lx\n", MCLK->APBBMASK.reg);
-    printf(" MCLK->APBCMASK = 0x%08lx\n", MCLK->APBCMASK.reg);
-    printf(" MCLK->APBDMASK = 0x%08lx\n", MCLK->APBDMASK.reg);
-    printf(" MCLK->APBEMASK = 0x%08lx\n", MCLK->APBEMASK.reg);
+    if (MCLK->AHBMASK.reg != MCLK_AHBMASK_RESETVALUE) {
+        printf(" MCLK->AHBMASK  = 0x%08lx\n", MCLK->AHBMASK.reg);
+    }
+    if (MCLK->APBAMASK.reg != MCLK_APBAMASK_RESETVALUE) {
+        printf(" MCLK->APBAMASK = 0x%08lx\n", MCLK->APBAMASK.reg);
+    }
+    if (MCLK->APBBMASK.reg != MCLK_APBBMASK_RESETVALUE) {
+        printf(" MCLK->APBBMASK = 0x%08lx\n", MCLK->APBBMASK.reg);
+    }
+    if (MCLK->APBCMASK.reg != MCLK_APBCMASK_RESETVALUE) {
+        printf(" MCLK->APBCMASK = 0x%08lx\n", MCLK->APBCMASK.reg);
+    }
+    if (MCLK->APBDMASK.reg != MCLK_APBDMASK_RESETVALUE) {
+        printf(" MCLK->APBDMASK = 0x%08lx\n", MCLK->APBDMASK.reg);
+    }
+    if (MCLK->APBEMASK.reg != MCLK_APBEMASK_RESETVALUE) {
+        printf(" MCLK->APBEMASK = 0x%08lx\n", MCLK->APBEMASK.reg);
+    }
 
     puts("Power manager:");
     printf(" PM->CTRLA.IORET        = %d\n", (PM->CTRLA.bit.IORET) ? 1 : 0);
@@ -216,6 +228,18 @@ void debug_saml21(void)
         }
         if (PORT->Group[i].EVCTRL.bit.PORTEI3) {
             printf("P%c: event=3, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT3], PORT->Group[i].EVCTRL.bit.PID3);
+        }
+    }
+
+    puts("SERCOMs:");
+    Sercom *sercoms[] = SERCOM_INSTS;
+    char *sercom_modes[] = { "USART, ext clock", "USART, int clock", "SPI, slave", "SPI, master", "I2C, slave", "I2C, master", "-", "-" };
+    for (int i=0; i<SERCOM_INST_NUM; i++) {
+        if (sercoms[i]->USART.CTRLA.reg) {
+            printf(" SERCOM%d->CTRLA = %s", i, sercom_modes[sercoms[i]->USART.CTRLA.bit.MODE]);
+            if (sercoms[i]->USART.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
+            if (sercoms[i]->USART.CTRLA.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
+            puts("");
         }
     }
 }

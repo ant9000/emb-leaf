@@ -242,4 +242,17 @@ void debug_saml21(void)
             puts("");
         }
     }
+
+    puts("Timers:");
+    Tc *timers[] = TC_INSTS;
+    char *timer_modes[] = { "COUNT16", "COUNT8", "COUNT32" };
+    char *timer_divs[] = { "", "/2", "/4", "/8", "/16", "/64", "/256", "/1024" };
+    for (int i=0; i<TC_INST_NUM; i++) {
+        if (timers[i]->COUNT8.CTRLA.reg) {
+            printf(" TC%d->CTRLA = %s GCLK_TC%s", i, timer_modes[timers[i]->COUNT8.CTRLA.bit.MODE], timer_divs[timers[i]->COUNT8.CTRLA.bit.PRESCALER]);
+            if (timers[i]->COUNT8.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
+            if (timers[i]->COUNT8.CTRLA.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
+            puts("");
+        }
+    }
 }

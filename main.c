@@ -60,8 +60,10 @@ int lora_power_cmd(int argc, char **argv)
             return -1;
         }
 #ifdef BOARD_SAMR34_XPRO
+        gpio_init(TCXO_PWR_PIN, GPIO_OUT);
+        gpio_set(TCXO_PWR_PIN);
         gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
-        gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+        gpio_write(TX_OUTPUT_SEL_PIN, !SX127X_PARAM_PASELECT);
 #endif
         spi_init(sx127x.params.spi);
         netdev_t *netdev = (netdev_t *)&sx127x;
@@ -75,12 +77,12 @@ int lora_power_cmd(int argc, char **argv)
             puts("Radio already off");
             return -1;
         }
-        sx127x_reset(&sx127x);
         sx127x_set_sleep(&sx127x);
         spi_release(sx127x.params.spi);
         spi_deinit_pins(sx127x.params.spi);
 #ifdef BOARD_SAMR34_XPRO
-        gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PU);
+        gpio_clear(TCXO_PWR_PIN);
+        gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
         sx127x_power = 0;
     } else {

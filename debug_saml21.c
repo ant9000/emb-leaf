@@ -136,6 +136,59 @@ void debug_saml21(void)
         printf(" MCLK->APBEMASK = 0x%08lx\n", MCLK->APBEMASK.reg);
     }
 
+    puts("Reset controller:");
+    if (RSTC->RCAUSE.reg) {
+        printf(" RSTC->RCAUSE = ");
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_BACKUP) {
+            printf("BACKUP");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_SYST) {
+            printf("SYST");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_WDT) {
+            printf("WDT");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_EXT) {
+            printf("EXT");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_BOD33) {
+            printf("BOD33");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_BOD12) {
+            printf("BOD12");
+        }
+        if (RSTC->RCAUSE.reg & RSTC_RCAUSE_POR) {
+            printf("POR");
+        }
+        puts("");
+    }
+    if (RSTC->BKUPEXIT.reg) {
+        printf(" RSTC->BKUPEXIT = ");
+        if (RSTC->BKUPEXIT.reg & RSTC_BKUPEXIT_BBPS) {
+            printf(" BBPS");
+        }
+        if (RSTC->BKUPEXIT.reg & RSTC_BKUPEXIT_RTC) {
+            printf(" RTC");
+        }
+        if (RSTC->BKUPEXIT.reg & RSTC_BKUPEXIT_EXTWAKE) {
+            printf(" EXTWAKE");
+        }
+        puts("");
+    }
+    if (RSTC->WKDBCONF.reg) {
+        char *debounce_counts[] = { "OFF", "2CK32", "3CK32", "32CK32", "512CK32", "4096CK32", "32768CK32", "-" };
+        printf(" RSTC->WKDBCONF = %s\n", debounce_counts[RSTC->WKDBCONF.bit.WKDBCNT]);
+    }
+    if (RSTC->WKPOL.reg) {
+        printf(" RSTC->WKPOL.reg = 0x%02x\n", RSTC->WKPOL.reg & RSTC_WKPOL_MASK);
+    }
+    if (RSTC->WKEN.reg) {
+        printf(" RSTC->WKEN.reg = 0x%02x\n", RSTC->WKEN.reg & RSTC_WKEN_MASK);
+    }
+    if (RSTC->WKCAUSE.reg) {
+        printf(" RSTC->WKCAUSE.reg = 0x%02x\n", RSTC->WKCAUSE.reg & RSTC_WKCAUSE_MASK);
+    }
+
     puts("Power manager:");
     printf(" PM->CTRLA.IORET        = %d\n", (PM->CTRLA.bit.IORET) ? 1 : 0);
     char *sleep_modes[] = { "-", "-", "IDLE", "-", "STANDBY", "BACKUP", "OFF", "-" };

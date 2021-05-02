@@ -470,22 +470,23 @@ int sleep_cmd(int argc, char **argv)
         return -1;
     }
 
+    uint8_t extwake = 255;
     if ((strcmp(argv[1], "pin") == 0)){
         if (argc < 3) {
             puts("usage: sleep [<seconds>|pin <num>]");
             return -1;
         }
-        uint8_t btn = atoi(argv[2]) & 0x0F;
-        if (btn > 7) {
+        extwake = atoi(argv[2]) & 0x0F;
+        if (extwake > 7) {
             puts("Available pins: 0 - 7 only.");
             return -1;
         }
-        printf("Enabling PA%02d as external wakeup pin.\n", btn);
-        gpio_init(GPIO_PIN(PA, btn), GPIO_IN_PU);
+        printf("Enabling PA%02d as external wakeup pin.\n", extwake);
+        gpio_init(GPIO_PIN(PA, extwake), GPIO_IN_PU);
         // wait for pin to settle
-        while (!(PORT->Group[0].IN.reg & (1 << btn))) {}
-        RSTC->WKEN.reg = 1 << btn;
-        RSTC->WKPOL.reg &= ~(1 << btn);
+        while (!(PORT->Group[0].IN.reg & (1 << extwake))) {}
+        RSTC->WKEN.reg = 1 << extwake;
+        RSTC->WKPOL.reg &= ~(1 << extwake);
     } else {
         uint32_t seconds = atoi(argv[1]);
         if (seconds == 0) {
@@ -501,6 +502,60 @@ int sleep_cmd(int argc, char **argv)
     }
 
     puts("Now entering backup mode.");
+    // turn off SERCOMs, TCs, PORT pins
+    Sercom *sercoms[] = SERCOM_INSTS;
+    for (size_t i=0; i<SERCOM_INST_NUM; i++) {
+        sercoms[i]->USART.CTRLA.reg = 0;
+    }
+    Tc *timers[] = TC_INSTS;
+    for (size_t i=0; i<TC_INST_NUM; i++) {
+        timers[i]->COUNT8.CTRLA.reg = 0;
+    }
+    size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
+    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
+    for (size_t i=0; i<num; i++) {
+        for (size_t j=0; j<num1; j++) {
+            if (extwake == 255 || i != 0 || j != extwake) {
+                PORT->Group[i].PINCFG[j].reg = 0;
+            }
+        }
+    }
+    // gate unused peripherals
+    MCLK->APBBMASK.reg &= ~(MCLK_APBBMASK_MASK);
+    MCLK->APBCMASK.reg &= ~(MCLK_APBCMASK_MASK);
+    MCLK->APBDMASK.reg &= ~(MCLK_APBDMASK_MASK);
+    while (!MCLK->INTFLAG.bit.CKRDY) {}
+
+    // stop peripheral clocks
+    num = sizeof(GCLK->PCHCTRL)/sizeof(GCLK_PCHCTRL_Type);
+    for(size_t i=0; i<num; i++) {
+        GCLK->PCHCTRL[i].reg = 0;
+        while (GCLK->PCHCTRL[i].bit.CHEN) {}
+    }
+    // stop unnecessary clocks
+    GCLK->GENCTRL[SAM0_GCLK_MAIN].reg = GCLK_GENCTRL_GENEN | GCLK_GENCTRL_SRC_OSCULP32K;
+    while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_MAIN)) {}
+    num = sizeof(GCLK->GENCTRL) / sizeof(GCLK_GENCTRL_Type);
+    for (size_t i=0; i<num; i++) {
+        if (i != SAM0_GCLK_MAIN) {
+            GCLK->GENCTRL[i].reg = 0;
+            while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(i)) {}
+        }
+    }
+    // turn off the fast oscillators
+    OSCCTRL->OSC16MCTRL.bit.ENABLE = 0;
+    OSCCTRL->DFLLCTRL.bit.ENABLE = 0;
+    OSCCTRL->DPLLCTRLA.bit.ENABLE = 0;
+
+    // switch to performance level 0
+    PM->PLCFG.bit.PLSEL = PM_PLCFG_PLSEL_PL0;
+    while (!PM->INTFLAG.bit.PLRDY) {}
+    PM->PLCFG.bit.PLDIS = 1;
+    while (!PM->INTFLAG.bit.PLRDY) {}
+    // make sure VREG is in buck mode
+    SUPC->VREG.bit.SEL = 1;
+    while (!SUPC->STATUS.bit.VREGRDY) {}
+
     pm_set(0);
 
     return 0;

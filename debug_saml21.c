@@ -8,6 +8,8 @@
 
 void debug_saml21(void)
 {
+    int count=0;
+
     puts("Oscillators:");
     if (OSCCTRL->XOSCCTRL.bit.ENABLE) {
         printf(" OSCCTRL->XOSCMCTRL");
@@ -241,6 +243,7 @@ void debug_saml21(void)
     }
 
     puts("GPIO:");
+    count = 0;
     for (int i=0; i<4; i++) {
         for (int j=0; j<32; j++) {
             if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
@@ -267,6 +270,7 @@ void debug_saml21(void)
                     }
                 }
                 puts("");
+                count++;
             }
         }
         char *event_actions[] = { "OUT", "SET", "CLR", "TGL" };
@@ -283,29 +287,42 @@ void debug_saml21(void)
             printf("P%c: event=3, action=%s, pins=0x%02x", i, event_actions[PORT->Group[i].EVCTRL.bit.EVACT3], PORT->Group[i].EVCTRL.bit.PID3);
         }
     }
+    if (count == 0) {
+        puts(" NONE");
+    }
 
     puts("SERCOMs:");
     Sercom *sercoms[] = SERCOM_INSTS;
     char *sercom_modes[] = { "USART, ext clock", "USART, int clock", "SPI, slave", "SPI, master", "I2C, slave", "I2C, master", "-", "-" };
+    count = 0;
     for (int i=0; i<SERCOM_INST_NUM; i++) {
         if (sercoms[i]->USART.CTRLA.reg) {
             printf(" SERCOM%d->CTRLA = %s", i, sercom_modes[sercoms[i]->USART.CTRLA.bit.MODE]);
             if (sercoms[i]->USART.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
             if (sercoms[i]->USART.CTRLA.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
             puts("");
+            count++;
         }
+    }
+    if (count == 0) {
+        puts(" NONE");
     }
 
     puts("Timers:");
     Tc *timers[] = TC_INSTS;
     char *timer_modes[] = { "COUNT16", "COUNT8", "COUNT32" };
     char *timer_divs[] = { "", "/2", "/4", "/8", "/16", "/64", "/256", "/1024" };
+    count = 0;
     for (int i=0; i<TC_INST_NUM; i++) {
         if (timers[i]->COUNT8.CTRLA.reg) {
             printf(" TC%d->CTRLA = %s GCLK_TC%s", i, timer_modes[timers[i]->COUNT8.CTRLA.bit.MODE], timer_divs[timers[i]->COUNT8.CTRLA.bit.PRESCALER]);
             if (timers[i]->COUNT8.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
             if (timers[i]->COUNT8.CTRLA.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
             puts("");
+            count++;
         }
+    }
+    if (count == 0) {
+        puts(" NONE");
     }
 }

@@ -4,26 +4,27 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "thread.h"
 #include "shell.h"
 #include "shell_commands.h"
-
-#include "net/netdev.h"
-#include "net/netdev/lora.h"
-#include "net/lora.h"
+#include "od.h"
 
 #include "periph/rtt.h"
 #include "periph/pm.h"
+#include "periph/gpio.h"
 
 #include "board.h"
+
+#ifdef MODULE_SX1276
+#include "thread.h"
+#include "net/netdev.h"
+#include "net/netdev/lora.h"
+#include "net/lora.h"
 
 #include "sx127x.h"
 #include "sx127x_internal.h"
 #include "sx127x_params.h"
 #include "sx127x_netdev.h"
 
-#include "od.h"
-#include "fmt.h"
 
 #define SX127X_LORA_MSG_QUEUE   (16U)
 #define SX127X_STACKSIZE        (THREAD_STACKSIZE_DEFAULT)
@@ -40,9 +41,11 @@ static uint16_t emb_network = 1;
 static uint16_t emb_address = 1;
 static uint16_t emb_counter = 0;
 static bool emb_sniff = false;
+#endif
 
 void debug_saml21(void);
 
+#ifdef MODULE_SX1276
 int lora_power_cmd(int argc, char **argv)
 {
 
@@ -455,6 +458,7 @@ int sniff_cmd(int argc, char **argv)
 
     return 0;
 }
+#endif
 
 #ifdef CPU_SAML21
 int sleep_cmd(int argc, char **argv)
@@ -482,7 +486,12 @@ int sleep_cmd(int argc, char **argv)
         RSTC->WKPOL.reg &= ~(1 << btn);
     } else {
         uint32_t seconds = atoi(argv[1]);
+        if (seconds == 0) {
+            puts("Invalid value for seconds.");
+            return -1;
+        }
         printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
+        rtt_init();
         rtt_set_counter(0);
         rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
         // disable EXTINT wakeup
@@ -506,6 +515,7 @@ int debug_cmd(int argc, char **argv)
 #endif
 
 static const shell_command_t shell_commands[] = {
+#ifdef MODULE_SX1276
     { "power",    "Start/stop LoRa module",                  lora_power_cmd },
     { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
@@ -518,6 +528,7 @@ static const shell_command_t shell_commands[] = {
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
+#endif
 #ifdef CPU_SAML21
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
@@ -525,6 +536,7 @@ static const shell_command_t shell_commands[] = {
     { NULL, NULL, NULL }
 };
 
+#ifdef MODULE_SX1276
 uint16_t uint16(char *ptr) {
     uint16_t result = ptr[0] + (ptr[1]<<8);
     return result;
@@ -619,9 +631,11 @@ void *_recv_thread(void *arg)
         }
     }
 }
+#endif
 
 int main(void)
 {
+#ifdef MODULE_SX1276
     sx127x.params = sx127x_params[0];
     netdev_t *netdev = (netdev_t *)&sx127x;
     netdev->driver = &sx127x_driver;
@@ -642,6 +656,7 @@ int main(void)
         return -1;
     }
     sx127x_power = 1;
+#endif
 
     /* start the shell */
     puts("Initialization successful - starting the shell now");

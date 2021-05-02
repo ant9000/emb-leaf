@@ -8,7 +8,7 @@
 
 void debug_saml21(void)
 {
-    int count=0;
+    size_t count, num, num1;
 
     puts("Oscillators:");
     if (OSCCTRL->XOSCCTRL.bit.ENABLE) {
@@ -71,7 +71,8 @@ void debug_saml21(void)
         "XOSC", "GCLK_IN", "GCLK_GEN1", "OSCULP32K", "OSC32K",
         "XOSC32K", "OSC16M", "DFLL48M", "DPLL96M"
     };
-    for(int i=0; i<9; i++) {
+    num = sizeof(GCLK->GENCTRL) / sizeof(GCLK_GENCTRL_Type);
+    for(size_t i=0; i<num; i++) {
         if (GCLK->GENCTRL[i].bit.GENEN) {
             printf(" GCLK->GENCTRL[%02d].SRC = %s", i, clock_sources[GCLK->GENCTRL[i].bit.SRC]);
             if(GCLK->GENCTRL[i].bit.DIV) {
@@ -109,7 +110,8 @@ void debug_saml21(void)
         "TC2_GCLK_ID, TC3_GCLK_ID", "TC4_GCLK_ID", "ADC_GCLK_ID", "AC_GCLK_ID",
         "DAC_GCLK_ID", "PTC_GCLK_ID", "CCL_GCLK_ID", "NVMCTRL_GCLK_ID",
     };
-    for(int i=0; i<36; i++) {
+    num = sizeof(GCLK->PCHCTRL)/sizeof(GCLK_PCHCTRL_Type);
+    for(size_t i=0; i<num; i++) {
         if (GCLK->PCHCTRL[i].bit.CHEN) {
             printf(" GCLK->PCHCTRL[%02d].SRC = %d [%s]", i, GCLK->PCHCTRL[i].bit.GEN, gclk_ids[i]);
             if(GCLK->PCHCTRL[i].bit.WRTLOCK) { printf(" WRTLOCK"); }
@@ -244,8 +246,10 @@ void debug_saml21(void)
 
     puts("GPIO:");
     count = 0;
-    for (int i=0; i<4; i++) {
-        for (int j=0; j<32; j++) {
+    num = sizeof(PORT->Group)/sizeof(PortGroup);
+    num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
+    for (size_t i=0; i<num; i++) {
+        for (size_t j=0; j<num1; j++) {
             if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
                 printf(" P%c.%02d:", 'A' + i, j);
                 if (PORT->Group[i].PINCFG[j].bit.PMUXEN) {
@@ -295,7 +299,7 @@ void debug_saml21(void)
     Sercom *sercoms[] = SERCOM_INSTS;
     char *sercom_modes[] = { "USART, ext clock", "USART, int clock", "SPI, slave", "SPI, master", "I2C, slave", "I2C, master", "-", "-" };
     count = 0;
-    for (int i=0; i<SERCOM_INST_NUM; i++) {
+    for (size_t i=0; i<SERCOM_INST_NUM; i++) {
         if (sercoms[i]->USART.CTRLA.reg) {
             printf(" SERCOM%d->CTRLA = %s", i, sercom_modes[sercoms[i]->USART.CTRLA.bit.MODE]);
             if (sercoms[i]->USART.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
@@ -313,7 +317,7 @@ void debug_saml21(void)
     char *timer_modes[] = { "COUNT16", "COUNT8", "COUNT32" };
     char *timer_divs[] = { "", "/2", "/4", "/8", "/16", "/64", "/256", "/1024" };
     count = 0;
-    for (int i=0; i<TC_INST_NUM; i++) {
+    for (size_t i=0; i<TC_INST_NUM; i++) {
         if (timers[i]->COUNT8.CTRLA.reg) {
             printf(" TC%d->CTRLA = %s GCLK_TC%s", i, timer_modes[timers[i]->COUNT8.CTRLA.bit.MODE], timer_divs[timers[i]->COUNT8.CTRLA.bit.PRESCALER]);
             if (timers[i]->COUNT8.CTRLA.bit.ENABLE) { printf(" ENABLE"); }

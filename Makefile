@@ -17,6 +17,7 @@ ifeq ($(RADIO), 1)
   USEMODULE += sx1276
 endif
 ifeq ($(POWER_PROFILING), 1)
+  CFLAGS += -DPOWER_PROFILING
   USEMODULE += ztimer
 endif
 USEMODULE += saul_default

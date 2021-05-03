@@ -14,8 +14,8 @@
 #ifdef POWER_PROFILING
 #include "ztimer.h"
 #ifdef BOARD_LORA3A_DONGLE
-#define LED0   RGBLED_RED
-#define LED1   RGBLED_GREEN
+#define LED0_PIN  RGBLED_RED
+#define LED1_PIN  RGBLED_GREEN
 #endif
 #endif
 
@@ -477,6 +477,13 @@ int sleep_cmd(int argc, char **argv)
         return -1;
     }
 
+#ifdef POWER_PROFILING
+    gpio_init(LED0_PIN, GPIO_OUT);
+    gpio_clear(LED0_PIN);
+    ztimer_sleep(ZTIMER_MSEC, 1000);
+    gpio_set(LED0_PIN);
+#endif
+
     uint8_t extwake = 255;
     if ((strcmp(argv[1], "pin") == 0)){
         if (argc < 3) {
@@ -509,12 +516,6 @@ int sleep_cmd(int argc, char **argv)
         // disable EXTINT wakeup
         RSTC->WKEN.reg = 0;
     }
-#ifdef POWER_PROFILING
-    gpio_init(LED0, OUT);
-    gpio_set(LED0);
-    ztimer_sleep(ZTIMER_SEC, 1);
-    gpio_clear(LED0);
-#endif
 
     puts("Now entering backup mode.");
     // turn off SERCOMs, TCs, PORT pins
@@ -737,10 +738,10 @@ int main(void)
 #endif
 
 #ifdef POWER_PROFILING
-    gpio_init(LED1, OUT);
-    gpio_set(LED1);
-    ztimer_sleep(ZTIMER_SEC, 1);
-    gpio_clear(LED1);
+    gpio_init(LED1_PIN, GPIO_OUT);
+    gpio_clear(LED1_PIN);
+    ztimer_sleep(ZTIMER_MSEC, 1000);
+    gpio_set(LED1_PIN);
 #endif
 
     /* start the shell */

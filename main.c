@@ -494,7 +494,9 @@ int sleep_cmd(int argc, char **argv)
             return -1;
         }
         printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
+#ifndef MODULE_SX1276
         rtt_init();
+#endif
         rtt_set_counter(0);
         rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
         // disable EXTINT wakeup

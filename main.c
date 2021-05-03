@@ -11,6 +11,13 @@
 #include "periph/rtt.h"
 #include "periph/pm.h"
 #include "periph/gpio.h"
+#ifdef POWER_PROFILING
+#include "ztimer.h"
+#ifdef BOARD_LORA3A_DONGLE
+#define LED0   RGBLED_RED
+#define LED1   RGBLED_GREEN
+#endif
+#endif
 
 #include "board.h"
 
@@ -502,6 +509,12 @@ int sleep_cmd(int argc, char **argv)
         // disable EXTINT wakeup
         RSTC->WKEN.reg = 0;
     }
+#ifdef POWER_PROFILING
+    gpio_init(LED0, OUT);
+    gpio_set(LED0);
+    ztimer_sleep(ZTIMER_SEC, 1);
+    gpio_clear(LED0);
+#endif
 
     puts("Now entering backup mode.");
     // turn off SERCOMs, TCs, PORT pins
@@ -721,6 +734,13 @@ int main(void)
         return -1;
     }
     sx127x_power = 1;
+#endif
+
+#ifdef POWER_PROFILING
+    gpio_init(LED1, OUT);
+    gpio_set(LED1);
+    ztimer_sleep(ZTIMER_SEC, 1);
+    gpio_clear(LED1);
 #endif
 
     /* start the shell */

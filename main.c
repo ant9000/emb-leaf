@@ -541,6 +541,10 @@ int sleep_cmd(int argc, char **argv)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
+#ifdef BOARD_SAMR34_XPRO
+    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
+    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
+#endif
 
     // gate unused peripherals
     MCLK->APBBMASK.reg &= ~(MCLK_APBBMASK_MASK);

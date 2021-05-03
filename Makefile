@@ -15,11 +15,17 @@ USEMODULE += ps
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure
   USEMODULE += sx1276
+else
+  USEMODULE += periph_rtt
 endif
+
 ifeq ($(POWER_PROFILING), 1)
   CFLAGS += -DPOWER_PROFILING
   USEMODULE += ztimer
+  USEMODULE += ztimer_msec
+  USEMODULE += ztimer_periph_rtt
 endif
+
 USEMODULE += saul_default
 
 

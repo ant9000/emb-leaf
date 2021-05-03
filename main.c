@@ -520,6 +520,12 @@ int sleep_cmd(int argc, char **argv)
             }
         }
     }
+    // add pullups to console pins
+    for (size_t i=0; i<UART_NUMOF; i++) {
+        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
+        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
+    }
+
     // gate unused peripherals
     MCLK->APBBMASK.reg &= ~(MCLK_APBBMASK_MASK);
     MCLK->APBCMASK.reg &= ~(MCLK_APBCMASK_MASK);

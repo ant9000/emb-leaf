@@ -61,7 +61,7 @@ int lora_power_cmd(int argc, char **argv)
         return -1;
     }
 
-    if (strcmp(argv[1], "on") == 0) {
+    if (strstr(argv[1], "on") != NULL) {
         if (sx127x_power) {
             puts("Radio already on");
             return -1;
@@ -79,7 +79,7 @@ int lora_power_cmd(int argc, char **argv)
             return -1;
         }
         sx127x_power = 1;
-    } else if(strcmp(argv[1], "off") == 0) {
+    } else if(strstr(argv[1], "off") != NULL) {
         if (!sx127x_power) {
             puts("Radio already off");
             return -1;
@@ -470,6 +470,90 @@ int sniff_cmd(int argc, char **argv)
 #endif
 
 #ifdef CPU_SAML21
+int cpufreq_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: cpufreq <get|set>");
+        return -1;
+    }
+
+    // NB: it's not general, but works with RIOT initialization
+    uint8_t cpufreq;
+    uint8_t osc16m_freqs[] = { 4, 8, 12, 16 };
+    uint8_t src = GCLK->GENCTRL[0].bit.SRC;
+    uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
+    switch (src) {
+        case GCLK_GENCTRL_SRC_DFLL48M_Val:
+            cpufreq = 48;
+            break;
+        default:
+            cpufreq = osc16m_freqs[fsel];
+            break;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("CPU frequency: %dMHz\n", cpufreq);
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: address set <addressid>");
+            return -1;
+        }
+        uint8_t tgt;
+        uint8_t fsel_new;
+        uint8_t cpufreq_new = atoi(argv[2]) & 0xFF;
+
+        if (cpufreq_new != cpufreq) {
+            switch (cpufreq_new) {
+#if USE_DFLL
+                case 48:
+                    tgt = GCLK_GENCTRL_SRC_DFLL48M_Val;
+                    break;
+#endif
+                case 16:
+                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_16_Val;
+                    break;
+                case 12:
+                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_12_Val;
+                    break;
+                case 8:
+                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_8_Val;
+                    break;
+                case 4:
+                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_4_Val;
+                    break;
+                default:
+#if USE_DFLL
+                    puts("Available frequencies: 4, 8, 12, 16, 48 only.");
+#else
+                    puts("Available frequencies: 4, 8, 12, 16 only.");
+#endif
+                    return -1;
+                    break;
+            }
+            if (tgt != src) {
+                GCLK->GENCTRL[0].bit.SRC = tgt;
+                while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(0)) {}
+            }
+            if (fsel_new != fsel) {
+                OSCCTRL->OSC16MCTRL.bit.FSEL = fsel_new;
+            }
+            for (unsigned i = 0; i < 8; i++) {
+                if (cpufreq_new * 1000000 / (1 << i) <= 6000000) {
+                    MCLK->BUPDIV.reg = (1 << i);
+                    while (!MCLK->INTFLAG.bit.CKRDY) {}
+                    break;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int sleep_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -485,7 +569,7 @@ int sleep_cmd(int argc, char **argv)
 #endif
 
     uint8_t extwake = 255;
-    if ((strcmp(argv[1], "pin") == 0)){
+    if (strstr(argv[1], "pin") != NULL) {
         if (argc < 3) {
             puts("usage: sleep [<seconds>|pin <num>]");
             return -1;
@@ -555,7 +639,7 @@ int debug_cmd(int argc, char **argv)
 
 static const shell_command_t shell_commands[] = {
 #ifdef MODULE_SX1276
-    { "power",    "Start/stop LoRa module",                  lora_power_cmd },
+    { "power",    "Start/Stop LoRa module",                  lora_power_cmd },
     { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
@@ -569,6 +653,7 @@ static const shell_command_t shell_commands[] = {
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
 #endif
 #ifdef CPU_SAML21
+    { "cpufreq",  "Get/Set CPU frequencye",                  cpufreq_cmd },
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
 #endif

@@ -556,8 +556,22 @@ int cpufreq_cmd(int argc, char **argv)
                 }
             }
             // adjust clock generator for timers
-            GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = cpufreq_new / ((cpufreq_new == 4) || (cpufreq_new == 12) ? 4 : 8);
+//          uint32_t tdiv = GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV;
+            uint32_t tdiv_new = cpufreq_new / ((cpufreq_new == 4) || (cpufreq_new == 12) ? 4 : 8);
+            GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = tdiv_new;
             while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_TIMER)) {}
+//          int prescalers[] = { 1, 2, 4, 8, 16, 64, 256, 1024 };
+///         for (size_t i=0; i<TC_INST_NUM; i++) {
+///             if (timers[i]->COUNT8.CTRLA.reg) {
+///                 timers[i]->CTRLA.bit.ENABLE = 0;
+///                 uint32_t timer = cpufreq * tdiv / prescalers[timers[i]->COUNT8.CTRLA.bit.PRESCALER];
+///                 uint8_t divider = cpufreq_new * tdiv_new / timer;
+///                 uint8_t prescaler = 0; // TODO: index of divider in prescalers
+///                 timers[i]->COUNT8.CTRLA.bit.PRESCALER = prescaler;
+///                 timers[i]->CTRLA.bit.ENABLE = 1;
+///             }
+///         }
+
             // adjust console baud rate
             SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
             console->CTRLA.bit.ENABLE = 0;

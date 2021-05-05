@@ -223,7 +223,7 @@ void debug_saml21(void)
         );
         if (SUPC->VREG.bit.RUNSTDBY) { printf(" RUNSTBY"); }
         if (SUPC->VREG.bit.STDBYPL0) { printf(" STBYPL0"); }
-        puts(SUPC->VREG.bit.SEL ? " LDO" : " BUCK");
+        puts(SUPC->VREG.bit.SEL ? " BUCK" : " LDO");
     }
     char *vref_selections[] = { "1.024V", "", "2.048V", "4.096V", "", "", "", "" };
     printf(" SUPC->VREF = %s", vref_selections[SUPC->VREF.bit.SEL]);
@@ -242,6 +242,7 @@ void debug_saml21(void)
         if (SUPC->BKOUT.bit.RTCTGL) { printf(" RTCTGL"); }
         if (SUPC->BKOUT.bit.EN & 0x01) { printf(" OUT[0]"); }
         if (SUPC->BKOUT.bit.EN & 0x02) { printf(" OUT[1]"); }
+        puts("");
     }
 
     puts("GPIO:");

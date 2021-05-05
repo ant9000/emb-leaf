@@ -297,13 +297,37 @@ void debug_saml21(void)
 
     puts("SERCOMs:");
     Sercom *sercoms[] = SERCOM_INSTS;
-    char *sercom_modes[] = { "USART, ext clock", "USART, int clock", "SPI, slave", "SPI, master", "I2C, slave", "I2C, master", "-", "-" };
+    char *sercom_modes[] = { "USART:ext-clock", "USART:int-clock", "SPI:slave", "SPI:master", "I2C:slave", "I2C:master", "-", "-" };
+    char *usart_frame_formats[] = { "USART", "USART:parity", "AUTOBAUD", "AUTOBAUD:parity" };
+    char *usart_sample_rates[] = { "16x:arithmetic", "16x:fractional", "8x:arithmetic", "8x:fractional", "3x:arithmetic" };
+    char *i2c_speeds[] = { "100kHz", "1MHz", "3.4MHz", "-" };
     count = 0;
     for (size_t i=0; i<SERCOM_INST_NUM; i++) {
         if (sercoms[i]->USART.CTRLA.reg) {
             printf(" SERCOM%d->CTRLA = %s", i, sercom_modes[sercoms[i]->USART.CTRLA.bit.MODE]);
             if (sercoms[i]->USART.CTRLA.bit.ENABLE) { printf(" ENABLE"); }
             if (sercoms[i]->USART.CTRLA.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
+            switch (sercoms[i]->USART.CTRLA.bit.MODE) {
+                case 1:  // USART, internal clock
+                    if (sercoms[i]->USART.CTRLA.bit.FORM < sizeof(usart_frame_formats)) {
+                         printf(" %s", usart_frame_formats[sercoms[i]->USART.CTRLA.bit.FORM]);
+                    }
+                    printf(" %sSYNC", sercoms[i]->USART.CTRLA.bit.CMODE ? "": "A");
+                    if (sercoms[i]->USART.CTRLA.bit.SAMPR < sizeof(usart_sample_rates)) {
+                         printf(" %s", usart_sample_rates[sercoms[i]->USART.CTRLA.bit.SAMPR]);
+                    }
+                    printf(" BAUD:0x%04x", sercoms[i]->USART.BAUD.reg);
+                    break;
+                case 3:  // SPI, master
+                    printf(" BAUD:0x%02x", sercoms[i]->SPI.BAUD.reg);
+                    break;
+                case 5:  // I2C, master
+                    printf(" %s", i2c_speeds[sercoms[i]->I2CM.CTRLA.bit.SPEED]);
+                    printf(" BAUD:0x%04lx", sercoms[i]->I2CM.BAUD.reg);
+                    break;
+                default:
+                    break;
+            }
             puts("");
             count++;
         }

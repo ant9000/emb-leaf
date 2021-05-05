@@ -475,42 +475,6 @@ int sniff_cmd(int argc, char **argv)
 #endif
 
 #ifdef CPU_SAML21
-/* default to fractional baud rate calculation */
-#if !defined(CONFIG_SAM0_UART_BAUD_FRAC) && defined(SERCOM_USART_BAUD_FRAC_BAUD)
-#define CONFIG_SAM0_UART_BAUD_FRAC  1
-#endif
-static inline SercomUsart *dev(uart_t dev)
-{
-    return uart_config[dev].dev;
-}
-static void _set_baud(uart_t uart, uint32_t baudrate)
-{
-    const uint32_t f_src = sam0_gclk_freq(uart_config[uart].gclk_src);
-#if IS_ACTIVE(CONFIG_SAM0_UART_BAUD_FRAC)
-    /* Asynchronous Fractional */
-    uint32_t baud = (((f_src * 8) / baudrate) / 16);
-    dev(uart)->BAUD.FRAC.FP = (baud % 8);
-    dev(uart)->BAUD.FRAC.BAUD = (baud / 8);
-#else
-    /* Asynchronous Arithmetic */
-    /* BAUD = 2^16     * (2^0 - 2^4 * f_baud / f_src)     */
-    /*      = 2^(16-n) * (2^n - 2^(n+4) * f_baud / f_src) */
-    /*      = 2^(20-n) * (2^(n-4) - 2^n * f_baud / f_src) */
-
-    /* 2^n * f_baud < 2^32 -> find the next power of 2 */
-    uint8_t pow = __builtin_clz(baudrate);
-
-    /* 2^n * f_baud */
-    baudrate <<= pow;
-
-    /* (2^(n-4) - 2^n * f_baud / f_src) */
-    uint32_t tmp = (1 << (pow - 4)) - baudrate / f_src;
-    uint32_t rem = baudrate % f_src;
-
-    uint8_t scale = 20 - pow;
-    dev(uart)->BAUD.reg = (tmp << scale) - (rem << scale) / f_src;
-#endif
-}
 int cpufreq_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -521,7 +485,7 @@ int cpufreq_cmd(int argc, char **argv)
     // NB: it's not general, but works with RIOT initialization
     uint8_t cpufreq;
     uint8_t osc16m_freqs[] = { 4, 8, 12, 16 };
-    uint8_t src = GCLK->GENCTRL[0].bit.SRC;
+    uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
     uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
     switch (src) {
         case GCLK_GENCTRL_SRC_DFLL48M_Val:
@@ -576,14 +540,10 @@ int cpufreq_cmd(int argc, char **argv)
                     return -1;
                     break;
             }
-            // disable console
-            dev(STDIO_UART_DEV)->CTRLA.bit.ENABLE = 0;
-            dev(STDIO_UART_DEV)->CTRLB.bit.RXEN = 0;
-            dev(STDIO_UART_DEV)->CTRLB.bit.TXEN = 0;
-            // change frequency
+            // change main clock frequency
             if (tgt != src) {
-                GCLK->GENCTRL[0].bit.SRC = tgt;
-                while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(0)) {}
+                GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC = tgt;
+                while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_MAIN)) {}
             }
             if (fsel_new != fsel) {
                 OSCCTRL->OSC16MCTRL.bit.FSEL = fsel_new;
@@ -595,16 +555,20 @@ int cpufreq_cmd(int argc, char **argv)
                     break;
                 }
             }
+            // adjust clock generator for timers
+            GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = cpufreq_new / ((cpufreq_new == 4) || (cpufreq_new == 12) ? 4 : 8);
+            while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_TIMER)) {}
             // adjust console baud rate
-            _set_baud(STDIO_UART_DEV, STDIO_UART_BAUDRATE);
-            while (dev(STDIO_UART_DEV)->SYNCBUSY.reg) {}
-            // enable console
-            dev(STDIO_UART_DEV)->CTRLB.bit.RXEN = 1;
-            dev(STDIO_UART_DEV)->CTRLB.bit.TXEN = 1;
-            dev(STDIO_UART_DEV)->CTRLA.bit.ENABLE = 1;
+            SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
+            console->CTRLA.bit.ENABLE = 0;
+            uint32_t baud = (((cpufreq_new * 1000000 * 8) / STDIO_UART_BAUDRATE) / 16);
+            console->BAUD.FRAC.FP = (baud % 8);
+            console->BAUD.FRAC.BAUD = (baud / 8);
+            while (console->SYNCBUSY.reg) {}
+            console->CTRLA.bit.ENABLE = 1;
 
             // TODO: fix other peripherals too
-
+            // SPI, TC0
         }
     }
     return 0;

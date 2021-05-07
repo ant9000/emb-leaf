@@ -26,13 +26,13 @@ void debug_saml21(void)
         puts("");
     }
     if (OSCCTRL->DFLLCTRL.bit.ENABLE) {
-        printf(" OSCCTRL->DFLLCTRL 48MHz");
+        printf(" OSCCTRL->DFLLCTRL");
+        if (OSCCTRL->DFLLCTRL.bit.MODE) { printf(" CLOSED-LOOP MUL:%d", OSCCTRL->DFLLMUL.bit.MUL); }
         if(OSCCTRL->DFLLCTRL.bit.WAITLOCK) { printf(" WAITLOCK"); }
         if(OSCCTRL->DFLLCTRL.bit.ONDEMAND) { printf(" ONDEMAND"); }
         if(OSCCTRL->DFLLCTRL.bit.RUNSTDBY) { printf(" RUNSTDBY"); }
         if(OSCCTRL->DFLLCTRL.bit.USBCRM) { printf(" USBCRM"); }
         if(OSCCTRL->DFLLCTRL.bit.LLAW) { printf(" LLAW"); }
-        if (OSCCTRL->DFLLCTRL.bit.MODE) { printf(" CLOSED-LOOP"); }
         puts("");
     }
     if (OSCCTRL->DPLLCTRLA.bit.ENABLE ) {

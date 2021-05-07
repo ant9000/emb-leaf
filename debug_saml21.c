@@ -225,7 +225,7 @@ void debug_saml21(void)
         );
         if (SUPC->VREG.bit.RUNSTDBY) { printf(" RUNSTBY"); }
         if (SUPC->VREG.bit.STDBYPL0) { printf(" STBYPL0"); }
-        puts(SUPC->VREG.bit.SEL ? " BUCK" : " LDO");
+        puts(SUPC->VREG.bit.SEL == SAM0_VREG_LDO? " LDO" : " BUCK");
     }
     char *vref_selections[] = { "1.024V", "", "2.048V", "4.096V", "", "", "", "" };
     printf(" SUPC->VREF = %s", vref_selections[SUPC->VREF.bit.SEL]);

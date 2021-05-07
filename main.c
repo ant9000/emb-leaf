@@ -58,11 +58,11 @@ static bool emb_sniff = false;
 void debug_saml21(void);
 
 #ifdef MODULE_SX1276
-int lora_power_cmd(int argc, char **argv)
+int lora_radio_cmd(int argc, char **argv)
 {
 
     if (argc != 2) {
-        puts("usage: power on|off");
+        puts("usage: radio on|off");
         return -1;
     }
 
@@ -98,7 +98,7 @@ int lora_power_cmd(int argc, char **argv)
 #endif
         sx127x_power = 0;
     } else {
-        puts("usage: power on|off");
+        puts("usage: radio on|off");
         return -1;
     }
     return 0;
@@ -687,9 +687,47 @@ int perf_cmd(int argc, char **argv)
                 return -1;
                 break;
         }
-        printf("Performance level: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
+        printf("Performance level now: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
     } else {
         puts("usage: perf <get|set>");
+        return -1;
+    }
+    return 0;
+}
+
+int vreg_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: vreg <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("Voltage regulator: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: vref set <regulator>");
+            return -1;
+        }
+        uint8_t vreg;
+        if (strstr(argv[2], "ldo") != NULL) {
+            vreg = SAM0_VREG_LDO;
+        } else if (strstr(argv[2], "buck") != NULL) {
+            if (saml21_corefreq() == 48) {
+                puts("Buck regulator can't be used with 48MHz core clock");
+                return -1;
+            }
+            vreg = SAM0_VREG_BUCK;
+        } else {
+            puts("Available regulators: ldo, buck");
+            return -1;
+        }
+        SUPC->VREG.bit.SEL = vreg;
+        while (!SUPC->STATUS.bit.VREGRDY) {}
+        printf("Voltage regulator now: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
+    } else {
+        puts("usage: vreg <get|set>");
         return -1;
     }
     return 0;
@@ -780,7 +818,7 @@ int debug_cmd(int argc, char **argv)
 
 static const shell_command_t shell_commands[] = {
 #ifdef MODULE_SX1276
-    { "power",    "Start/Stop LoRa module",                  lora_power_cmd },
+    { "radio",    "Start/Stop LoRa module",                  lora_radio_cmd },
     { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
@@ -797,6 +835,7 @@ static const shell_command_t shell_commands[] = {
     { "corefreq", "Get/Set core frequency",                  corefreq_cmd },
     { "dividers", "Get/Set power domains dividers",          dividers_cmd },
     { "perf",     "Get/Set performance level",               perf_cmd },
+    { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
 #endif

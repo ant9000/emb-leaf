@@ -121,6 +121,8 @@ void debug_saml21(void)
 
     puts("Main clock:");
     printf(" MCLK->CPUDIV   = GCLK_MAIN/%d\n", MCLK->CPUDIV.reg);
+    printf(" MCLK->LPDIV    = GCLK_MAIN/%d\n", MCLK->LPDIV.reg);
+    printf(" MCLK->BUPDIV   = GCLK_MAIN/%d\n", MCLK->BUPDIV.reg);
     if (MCLK->AHBMASK.reg != MCLK_AHBMASK_RESETVALUE) {
         printf(" MCLK->AHBMASK  = 0x%08lx\n", MCLK->AHBMASK.reg);
     }

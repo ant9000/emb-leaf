@@ -475,41 +475,48 @@ int sniff_cmd(int argc, char **argv)
 #endif
 
 #ifdef CPU_SAML21
-int cpufreq_cmd(int argc, char **argv)
+uint8_t saml21_corefreq(void)
 {
-    if (argc < 2) {
-        puts("usage: cpufreq <get|set>");
-        return -1;
-    }
-
     // NB: it's not general, but works with RIOT initialization
-    uint8_t cpufreq;
+    uint8_t corefreq;
     uint8_t osc16m_freqs[] = { 4, 8, 12, 16 };
     uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
     uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
     switch (src) {
         case GCLK_GENCTRL_SRC_DFLL48M_Val:
-            cpufreq = 48;
+            corefreq = 48;
             break;
         default:
-            cpufreq = osc16m_freqs[fsel];
+            corefreq = osc16m_freqs[fsel];
             break;
     }
+    return corefreq;
+}
+int corefreq_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: corefreq <get|set>");
+        return -1;
+    }
+
+    uint8_t corefreq = saml21_corefreq();
+    uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
+    uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
 
     if (strstr(argv[1], "get") != NULL) {
-        printf("CPU frequency: %dMHz\n", cpufreq);
+        printf("CPU frequency: %dMHz\n", corefreq);
         return 0;
     } else if (strstr(argv[1], "set") != NULL) {
         if (argc < 3) {
-            puts("usage: address set <addressid>");
+            puts("usage: corefreq set <freq>");
             return -1;
         }
         uint8_t tgt;
         uint8_t fsel_new;
-        uint8_t cpufreq_new = atoi(argv[2]) & 0xFF;
+        uint8_t corefreq_new = atoi(argv[2]) & 0xFF;
 
-        if (cpufreq_new != cpufreq) {
-            switch (cpufreq_new) {
+        if (corefreq_new != corefreq) {
+            switch (corefreq_new) {
 #if USE_DFLL
                 case 48:
                     tgt = GCLK_GENCTRL_SRC_DFLL48M_Val;
@@ -549,41 +556,141 @@ int cpufreq_cmd(int argc, char **argv)
                 OSCCTRL->OSC16MCTRL.bit.FSEL = fsel_new;
             }
             for (unsigned i = 0; i < 8; i++) {
-                if (cpufreq_new * 1000000 / (1 << i) <= 6000000) {
+                if (corefreq_new * 1000000 / (1 << i) <= 6000000) {
                     MCLK->BUPDIV.reg = (1 << i);
                     while (!MCLK->INTFLAG.bit.CKRDY) {}
                     break;
                 }
             }
             // adjust clock generator for timers
-//          uint32_t tdiv = GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV;
-            uint32_t tdiv_new = cpufreq_new / ((cpufreq_new == 4) || (cpufreq_new == 12) ? 4 : 8);
+            uint32_t tdiv = GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV;
+            uint32_t tdiv_new = corefreq_new / ((corefreq_new == 4) || (corefreq_new == 12) ? 4 : 8);
             GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = tdiv_new;
             while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_TIMER)) {}
-//          int prescalers[] = { 1, 2, 4, 8, 16, 64, 256, 1024 };
-///         for (size_t i=0; i<TC_INST_NUM; i++) {
-///             if (timers[i]->COUNT8.CTRLA.reg) {
-///                 timers[i]->CTRLA.bit.ENABLE = 0;
-///                 uint32_t timer = cpufreq * tdiv / prescalers[timers[i]->COUNT8.CTRLA.bit.PRESCALER];
-///                 uint8_t divider = cpufreq_new * tdiv_new / timer;
-///                 uint8_t prescaler = 0; // TODO: index of divider in prescalers
-///                 timers[i]->COUNT8.CTRLA.bit.PRESCALER = prescaler;
-///                 timers[i]->CTRLA.bit.ENABLE = 1;
-///             }
-///         }
-
+            int prescalers[] = { 1, 2, 4, 8, 16, 64, 256, 1024 };
+            size_t n_prescalers = sizeof(prescalers)/sizeof(int);
+            Tc *timers[] = TC_INSTS;
+            for (size_t i=0; i<TC_INST_NUM; i++) {
+                if (timers[i]->COUNT8.CTRLA.reg) {
+                    timers[i]->COUNT8.CTRLA.bit.ENABLE = 0;
+                    uint32_t timer = corefreq * 1000000 / tdiv / prescalers[timers[i]->COUNT8.CTRLA.bit.PRESCALER];
+                    for (size_t j = 0; j < n_prescalers; j++) {
+                        uint32_t timer_new = corefreq_new * 1000000 / tdiv_new / prescalers[j];
+                        if (timer_new == timer) {
+                            timers[i]->COUNT8.CTRLA.bit.PRESCALER = j;
+                            break;
+                        }
+                    }
+                    timers[i]->COUNT8.CTRLA.bit.ENABLE = 1;
+                }
+            }
             // adjust console baud rate
             SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
             console->CTRLA.bit.ENABLE = 0;
-            uint32_t baud = (((cpufreq_new * 1000000 * 8) / STDIO_UART_BAUDRATE) / 16);
+            uint32_t baud = (((corefreq_new * 1000000 * 8) / STDIO_UART_BAUDRATE) / 16);
             console->BAUD.FRAC.FP = (baud % 8);
             console->BAUD.FRAC.BAUD = (baud / 8);
             while (console->SYNCBUSY.reg) {}
             console->CTRLA.bit.ENABLE = 1;
 
             // TODO: fix other peripherals too
-            // SPI, TC0
+            // SPI, I2CM
+
+            printf("CPU frequency now: %dMHz\n", corefreq_new);
         }
+    } else {
+        puts("usage: corefreq <get|set>");
+        return -1;
+    }
+    return 0;
+}
+
+int dividers_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: dividers <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("Dividers: CPU=core/%d LP=core/%d, BUP=core/%d\n", MCLK->CPUDIV.reg, MCLK->LPDIV.reg, MCLK->BUPDIV.reg);
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc != 5) {
+            puts("usage: dividers set <cpudiv> <lpdiv> <bupdiv>");
+            return -1;
+        }
+        uint8_t cpudiv = atoi(argv[2]) & 0xFF;
+        uint8_t lpdiv  = atoi(argv[3]) & 0xFF;
+        uint8_t bupdiv = atoi(argv[4]) & 0xFF;
+        // TODO: dividers must be powers of 2
+        if ((1 <= cpudiv) && (cpudiv <= lpdiv) && (lpdiv <= bupdiv)) {
+            MCLK->BUPDIV.reg = bupdiv;
+            MCLK->LPDIV.reg  = lpdiv;
+            MCLK->CPUDIV.reg = cpudiv;
+            printf("Dividers now: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv, lpdiv, bupdiv);
+        } else {
+            printf("Dividers required: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv, lpdiv, bupdiv);
+            puts("Dividers must satisfy 1 <= CPUDIV <= LPDIV <= BUPDIV");
+            return -1;
+        }
+    } else {
+        puts("usage: dividers <get|set>");
+        return -1;
+    }
+    return 0;
+}
+
+int perf_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: perf <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("Performance level: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: perf set <level> [<lock>]");
+            return -1;
+        }
+        uint8_t level = atoi(argv[2]) & 0x03;
+        uint8_t lock = ((argc >=3) && (strstr(argv[3], "1") != NULL)) ? 1 : 0;
+        switch (level) {
+            case 0:
+                if (saml21_corefreq() > 12) {
+                    puts("Performance level 0 can't be used with a core frequency above 12MHz");
+                   return -1;
+                }
+                if (PM->PLCFG.bit.PLSEL != level) {
+                    PM->PLCFG.bit.PLSEL = level;
+                    while (!PM->INTFLAG.bit.PLRDY) {}
+                }
+                if (PM->PLCFG.bit.PLDIS != lock) {
+                    PM->PLCFG.bit.PLDIS = lock;
+                    while (!PM->INTFLAG.bit.PLRDY) {}
+                }
+                break;
+            case 2:
+                if (PM->PLCFG.bit.PLSEL != level) {
+                    PM->PLCFG.bit.PLSEL = level;
+                    while (!PM->INTFLAG.bit.PLRDY) {}
+                }
+                if (lock) {
+                    puts("Warning: locking is only available if already at performance level 0");
+                }
+                break;
+            default:
+                puts("Available performance levels: 0, 2");
+                return -1;
+                break;
+        }
+        printf("Performance level: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
+    } else {
+        puts("usage: perf <get|set>");
+        return -1;
     }
     return 0;
 }
@@ -687,7 +794,9 @@ static const shell_command_t shell_commands[] = {
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
 #endif
 #ifdef CPU_SAML21
-    { "cpufreq",  "Get/Set CPU frequencye",                  cpufreq_cmd },
+    { "corefreq", "Get/Set core frequency",                  corefreq_cmd },
+    { "dividers", "Get/Set power domains dividers",          dividers_cmd },
+    { "perf",     "Get/Set performance level",               perf_cmd },
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
 #endif

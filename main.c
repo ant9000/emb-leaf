@@ -586,10 +586,12 @@ int corefreq_cmd(int argc, char **argv)
             }
             // adjust console baud rate
             SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
+            assert(console->CTRLA.bit.SAMPR == 1);
             console->CTRLA.bit.ENABLE = 0;
-            uint32_t baud = (((corefreq_new * 1000000 * 8) / STDIO_UART_BAUDRATE) / 16);
-            console->BAUD.FRAC.FP = (baud % 8);
-            console->BAUD.FRAC.BAUD = (baud / 8);
+            uint32_t baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
+            uint32_t baud_new = corefreq_new * baud / corefreq;
+            console->BAUD.FRAC.FP = (baud_new % 8);
+            console->BAUD.FRAC.BAUD = (baud_new / 8);
             while (console->SYNCBUSY.reg) {}
             console->CTRLA.bit.ENABLE = 1;
 
@@ -733,6 +735,47 @@ int vreg_cmd(int argc, char **argv)
     return 0;
 }
 
+int baud_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: baud get|set");
+        return -1;
+    }
+
+    SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
+    uint32_t baud, rate;
+    if (strstr(argv[1], "get") != NULL) {
+        assert(console->CTRLA.bit.SAMPR == 1);
+        baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
+        rate = saml21_corefreq() * 1000000 * 8 / baud / 16;
+        printf("Console baud rate: %lu\n", rate);
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: baud set <rate>");
+            return -1;
+        }
+        rate = atoi(argv[2]);
+        if ((rate > 0)) {
+            assert(console->CTRLA.bit.SAMPR == 1);
+            console->CTRLA.bit.ENABLE = 0;
+            baud = saml21_corefreq() * 1000000 * 8 / rate / 16;
+            console->BAUD.FRAC.FP = (baud % 8);
+            console->BAUD.FRAC.BAUD = (baud / 8);
+            while (console->SYNCBUSY.reg) {}
+            console->CTRLA.bit.ENABLE = 1;
+            printf("Console baud rate now: %lu\n", rate);
+        } else {
+            printf("Invalid baud rate %s\n", argv[2]);
+            return -1;
+        }
+    } else {
+        puts("usage: baud <get|set>");
+        return -1;
+    }
+    return 0;
+}
+
 int sleep_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -836,6 +879,7 @@ static const shell_command_t shell_commands[] = {
     { "dividers", "Get/Set power domains dividers",          dividers_cmd },
     { "perf",     "Get/Set performance level",               perf_cmd },
     { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
+    { "baud",     "Get/Set console baud rate",               baud_cmd },
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
 #endif

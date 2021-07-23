@@ -16,6 +16,7 @@
 #include "periph/rtt.h"
 #include "periph/pm.h"
 #include "periph/gpio.h"
+#include "periph/adc.h"
 #ifdef POWER_PROFILING
 #include "ztimer.h"
 #ifdef BOARD_LORA3A_DONGLE
@@ -857,6 +858,18 @@ int debug_cmd(int argc, char **argv)
     debug_saml21();
     return 0;
 }
+
+int vcc_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    int32_t vcc = adc_sample(0, ADC_RES_12BIT);
+    printf("VCC: %ld\n", vcc);
+
+    return 0;
+}
+
 #endif
 
 static const shell_command_t shell_commands[] = {
@@ -882,6 +895,7 @@ static const shell_command_t shell_commands[] = {
     { "baud",     "Get/Set console baud rate",               baud_cmd },
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
+    { "vcc",      "Read VCC from ADC",                       vcc_cmd },
 #endif
     { NULL, NULL, NULL }
 };

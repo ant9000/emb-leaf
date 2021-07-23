@@ -27,6 +27,7 @@ ifeq ($(POWER_PROFILING), 1)
 endif
 
 USEMODULE += saul_default
+USEMODULE += periph_adc
 
 
 include $(RIOTBASE)/Makefile.include

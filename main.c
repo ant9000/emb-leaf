@@ -870,6 +870,17 @@ int vcc_cmd(int argc, char **argv)
     return 0;
 }
 
+int vpanel_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+    printf("VPanel: %ld\n", vpanel);
+
+    return 0;
+}
+
 #endif
 
 static const shell_command_t shell_commands[] = {
@@ -896,6 +907,7 @@ static const shell_command_t shell_commands[] = {
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
     { "vcc",      "Read VCC from ADC",                       vcc_cmd },
+    { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
 #endif
     { NULL, NULL, NULL }
 };

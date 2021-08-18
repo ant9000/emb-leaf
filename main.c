@@ -7,6 +7,7 @@
 #include "shell.h"
 #include "shell_commands.h"
 #include "od.h"
+#include "fmt.h"
 
 #include "periph/uart.h"
 #include "stdio_uart.h"
@@ -815,9 +816,7 @@ int sleep_cmd(int argc, char **argv)
             return -1;
         }
         printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
-#ifndef MODULE_SX1276
-        rtt_init();
-#endif
+
         rtt_set_counter(0);
         rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
         // disable EXTINT wakeup
@@ -881,6 +880,45 @@ int vpanel_cmd(int argc, char **argv)
     return 0;
 }
 
+int persist_cmd(int argc, char **argv)
+{
+    uint32_t persist[4];
+    int i;
+
+    if (argc < 2) {
+        puts("usage: persist get|set");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("Persisted values: \n");
+        for (i = 0; i < 4; i++) {
+            persist[i] = RTC->MODE0.GP[i].reg;
+            printf("\t0x%08lx\n", persist[i]);
+        }
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3 || argc > 6) {
+            puts("usage: persist set <32bit> [<32bit> [<32bit> [<32bit>]]]");
+            return -1;
+        }
+        printf("Persisted values now:\n");
+        for (i = 0; i < 4; i++) {
+            if (i + 2 < argc) {
+                persist[i] = scn_u32_hex(argv[i + 2], 8);
+                RTC->MODE0.GP[i].reg = persist[i];
+            } else {
+                persist[i] = RTC->MODE0.GP[i].reg;
+            }
+            printf("\t0x%08lx\n", persist[i]);
+        }
+    } else {
+        puts("usage: persist <get|set>");
+        return -1;
+    }
+    return 0;
+}
+
 #endif
 
 static const shell_command_t shell_commands[] = {
@@ -899,15 +937,16 @@ static const shell_command_t shell_commands[] = {
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
 #endif
 #ifdef CPU_SAML21
-    { "corefreq", "Get/Set core frequency",                  corefreq_cmd },
-    { "dividers", "Get/Set power domains dividers",          dividers_cmd },
-    { "perf",     "Get/Set performance level",               perf_cmd },
-    { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
-    { "baud",     "Get/Set console baud rate",               baud_cmd },
-    { "sleep",    "Enter minimal power mode",                sleep_cmd },
-    { "debug",    "Show SAML21 peripherals config",          debug_cmd },
-    { "vcc",      "Read VCC from ADC",                       vcc_cmd },
-    { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
+    { "corefreq", "Get/Set core frequency",                    corefreq_cmd },
+    { "dividers", "Get/Set power domains dividers",            dividers_cmd },
+    { "perf",     "Get/Set performance level",                 perf_cmd },
+    { "vreg",     "Get/Set voltage regulator",                 vreg_cmd },
+    { "baud",     "Get/Set console baud rate",                 baud_cmd },
+    { "sleep",    "Enter minimal power mode",                  sleep_cmd },
+    { "debug",    "Show SAML21 peripherals config",            debug_cmd },
+    { "vcc",      "Read VCC from ADC",                         vcc_cmd },
+    { "vpanel",   "Read VPanel from ADC",                      vpanel_cmd },
+    { "persist",  "Get/Set 64 bits unaffected by backup mode", persist_cmd },
 #endif
     { NULL, NULL, NULL }
 };
@@ -1011,6 +1050,11 @@ void *_recv_thread(void *arg)
 
 int main(void)
 {
+    uint32_t persist[4];
+    for (int i = 0; i < 4; i++) persist[i] = RTC->MODE0.GP[i].reg;
+    rtt_init();
+    for (int i = 0; i < 4; i++) RTC->MODE0.GP[i].reg = persist[i];
+
 #ifdef MODULE_SX1276
     sx127x.params = sx127x_params[0];
     netdev_t *netdev = (netdev_t *)&sx127x;

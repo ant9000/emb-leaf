@@ -52,10 +52,26 @@ static char message[128];
 static sx127x_t sx127x;
 static bool sx127x_power = 0;
 static uint16_t emb_network = 1;
+#ifdef TEST1_MODE  
+  #ifdef BOARD_LORA3A_SENSOR1 
+static uint16_t emb_address = 23;
+  #endif
+  #ifdef BOARD_LORA3A_DONGLE 
+static uint16_t emb_address = 254;
+  #endif
+#else
 static uint16_t emb_address = 1;
+#endif
+  
 static uint16_t emb_counter = 0;
 static bool emb_sniff = false;
 #endif
+
+
+	char myargv0[10];
+	char myargv1[40];
+	char myargv2[10];
+	char *myargv[4] = { myargv0, myargv1, myargv2, NULL }; // allocate space for an argv like structure to be used to call RIOT shell commands from main or other functions 
 
 void debug_saml21(void);
 
@@ -474,6 +490,8 @@ int sniff_cmd(int argc, char **argv)
 
     return 0;
 }
+
+
 #endif
 
 #ifdef CPU_SAML21
@@ -786,6 +804,7 @@ int sleep_cmd(int argc, char **argv)
     }
 
 #ifdef POWER_PROFILING
+    printf ("POWER_PROFILING=1\n");
     gpio_init(LED0_PIN, GPIO_OUT);
     gpio_clear(LED0_PIN);
     ztimer_sleep(ZTIMER_MSEC, 1000);
@@ -874,10 +893,14 @@ int vpanel_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+	gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 19));
+	ztimer_sleep(ZTIMER_MSEC, 10);
+	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+	gpio_clear(GPIO_PIN(PA, 19));
     printf("VPanel: %ld\n", vpanel);
 
-    return 0;
+    return (int)vpanel;
 }
 
 int persist_cmd(int argc, char **argv)
@@ -919,6 +942,39 @@ int persist_cmd(int argc, char **argv)
     return 0;
 }
 
+int tx_data(int argc, char **argv)
+{
+	uint16_t dst = 0xffff; // broadcast by default
+
+	if (!sx127x_power) {
+		puts("Radio is off");
+		return -1;
+	}
+
+	if (argc == 2) {
+		dst = atoi(argv[1]) & 0xffff;
+	}
+	// read vcc now
+	int32_t vcc = adc_sample(0, ADC_RES_12BIT);
+
+	// read vpanel now
+	int myvpanel = vpanel_cmd(0,0);
+#if 0
+	gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 19));
+	ztimer_sleep(ZTIMER_MSEC, 10);
+	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+	gpio_clear(GPIO_PIN(PA, 19));
+#endif
+	strcpy(myargv0, "send_cmd");
+	sprintf(myargv1, "prova vcc=%ld, vpanel=%d", vcc, myvpanel);
+	sprintf(myargv2, "%d", dst);
+	myargv[2]= myargv2;
+	myargv[3] = NULL;
+	send_cmd(3, (char **)myargv);
+	return 0;
+}
+
 #endif
 
 static const shell_command_t shell_commands[] = {
@@ -935,6 +991,7 @@ static const shell_command_t shell_commands[] = {
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
+    { "txdata", "Send node data",						 	 tx_data },
 #endif
 #ifdef CPU_SAML21
     { "corefreq", "Get/Set core frequency",                    corefreq_cmd },
@@ -1004,10 +1061,42 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
                     if ((net == emb_network) && ((dst == emb_address) || (dst == 0xffff))) {
                         printf("EMB packet: dst=%04x, src=%04x, RSSI=%i, SNR=%i. Payload:\n", dst, src, packet_info.rssi, packet_info.snr);
                         od_hex_dump(message+10, len-10 < 128 ? len-10 : 128, 0);
+#ifdef TEST1_MODE
+    #ifdef BOARD_LORA3A_SENSOR1  
+                        // test of a remote command "go to sleep for n seconds (1 to 9)"
+                        // message needs to have "@" as start packet and "#" as stop packet, the single digit number inside is the number of seconds to sleep
+                        if (*(message+10) == '@')
+                        {
+							uint32_t seconds = *(message+11)-0x30;
+							if (*(message+12) == '$')
+							{
+								if (seconds > 0 && seconds < 10)
+								{
+									printf("Command received: go to sleep for %ld s!\n", seconds);
+									strcpy (myargv0, "sleep");
+									sprintf (myargv1, "%ld", seconds);
+									myargv[2] = NULL;
+									sleep_cmd (2, (char **)myargv);
+								} else printf ("invalid number of seconds\n");	
+							} else printf ("invalid command received\n"); 
+						}
+	#endif
+    #ifdef BOARD_LORA3A_DONGLE  
+						// received transmission from node src.
+						// tell him to sleep for 5 seconds
+						strcpy(myargv0, "send_cmd");
+						strcpy(myargv1, "@5$");
+						sprintf(myargv2, "%d", src);
+						myargv[2]= myargv2;
+						myargv[3] = NULL;
+						send_cmd(3, (char **)myargv);
+						listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
+	#endif	
+#endif	
                     }
                 }
                 break;
-
+ 
             case NETDEV_EVENT_TX_COMPLETE:
                 sx127x_set_sleep(&sx127x);
                 puts("Transmission completed");
@@ -1088,6 +1177,22 @@ int main(void)
     /* start the shell */
     puts("Initialization successful - starting the shell now");
     char line_buf[SHELL_DEFAULT_BUFSIZE];
+
+#ifdef TEST1_MODE  
+  #ifdef BOARD_LORA3A_SENSOR1 
+    printf("Board = sensor1. address = %d\n", emb_address); 
+    // Test sending data at wakeup then go in listen mode
+    strcpy(myargv0, "tx_data");
+    sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff
+    myargv[2] = NULL;
+	tx_data(2, myargv);
+    listen_cmd(0, 0); // start in listen mode to accept commands from remote
+  #endif
+  #ifdef BOARD_LORA3A_DONGLE  
+    printf("Board = dongle. address = %d\n", emb_address); 
+    listen_cmd(0, 0); // start in listen mode to accept transmissions from nodes
+  #endif	
+#endif    
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
     return 0;

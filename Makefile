@@ -5,6 +5,7 @@ QUIET ?= 1
 DEVELHELP ?= 1
 RADIO ?= 1
 POWER_PROFILING ?= 0
+TEST1_MODE ?= 0
 
 USEMODULE += od
 USEMODULE += od_string
@@ -26,6 +27,11 @@ ifeq ($(POWER_PROFILING), 1)
   USEMODULE += ztimer_msec
   USEMODULE += ztimer_periph_rtt
 endif
+
+ifeq ($(TEST1_MODE), 1)
+  CFLAGS += -DTEST1_MODE
+endif
+
 
 USEMODULE += saul_default
 USEMODULE += periph_adc

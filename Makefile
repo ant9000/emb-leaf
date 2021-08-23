@@ -20,7 +20,6 @@ ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure
   USEMODULE += sx1276
 endif
-DISABLE_MODULE += periph_init_rtt
 
 ifeq ($(POWER_PROFILING), 1)
   CFLAGS += -DPOWER_PROFILING
@@ -36,6 +35,7 @@ endif
 
 USEMODULE += saul_default
 USEMODULE += periph_adc
-
+USEMODULE += periph_rtt
+USEMODULE += periph_rtc_mem
 
 include $(RIOTBASE)/Makefile.include

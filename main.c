@@ -18,6 +18,7 @@
 #include "periph/pm.h"
 #include "periph/gpio.h"
 #include "periph/adc.h"
+#include "periph/rtc_mem.h"
 #ifdef POWER_PROFILING
 #include "ztimer.h"
 #ifdef BOARD_LORA3A_DONGLE
@@ -987,8 +988,8 @@ int hum_cmd(int argc, char **argv)
 
 int persist_cmd(int argc, char **argv)
 {
-    uint32_t persist[4];
-    int i;
+    uint8_t *persist;
+    size_t len = rtc_mem_size();
 
     if (argc < 2) {
         puts("usage: persist get|set");
@@ -996,26 +997,43 @@ int persist_cmd(int argc, char **argv)
     }
 
     if (strstr(argv[1], "get") != NULL) {
-        printf("Persisted values: \n");
-        for (i = 0; i < 4; i++) {
-            persist[i] = RTC->MODE0.GP[i].reg;
-            printf("\t0x%08lx\n", persist[i]);
+        if((persist = malloc(len)) != NULL) {
+            rtc_mem_read(0, persist, len);
+            puts("Persisted values:");
+            for(size_t i = 0; i < len; i++) {
+                printf(" %02x\n", persist[i]);
+            }
+            puts("");
+            free(persist);
+        } else {
+            printf("ERROR: malloc failed\n");
         }
         return 0;
     } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3 || argc > 6) {
-            puts("usage: persist set <32bit> [<32bit> [<32bit> [<32bit>]]]");
+        if (argc < 3 || (size_t)(argc - 2) > len) {
+            printf("usage: persist set <8bit> ... # up to %d values\n", len);
             return -1;
         }
-        printf("Persisted values now:\n");
-        for (i = 0; i < 4; i++) {
-            if (i + 2 < argc) {
-                persist[i] = scn_u32_hex(argv[i + 2], 8);
-                RTC->MODE0.GP[i].reg = persist[i];
-            } else {
-                persist[i] = RTC->MODE0.GP[i].reg;
+        if((persist = malloc(len)) != NULL) {
+            size_t n = (size_t)(argc - 2);
+            for (size_t i = 0; i < n; i++) {
+                int ch = atoi(argv[i + 2]);
+                if (ch < 0 || ch > 255) {
+                    printf("Invalid value %s at position %d", argv[i + 2], i);
+                    return -1;
+                }
+                persist[i] = ch;
             }
-            printf("\t0x%08lx\n", persist[i]);
+            rtc_mem_write(0, persist, n);
+            rtc_mem_read(0, persist, len);
+            puts("Persisted values now:");
+            for(size_t i = 0; i < len; i++) {
+                printf(" %02x\n", persist[i]);
+            }
+            puts("");
+            free(persist);
+        } else {
+            printf("ERROR: malloc failed\n");
         }
     } else {
         puts("usage: persist <get|set>");
@@ -1248,10 +1266,8 @@ void *_recv_thread(void *arg)
 
 int main(void)
 {
-    uint32_t persist[4];
-    for (int i = 0; i < 4; i++) persist[i] = RTC->MODE0.GP[i].reg;
-    rtt_init();
-    for (int i = 0; i < 4; i++) RTC->MODE0.GP[i].reg = persist[i];
+    size_t len = rtc_mem_size();
+    printf("RTC mem size: %d\n", len);
 
 #ifdef MODULE_SX1276
     sx127x.params = sx127x_params[0];

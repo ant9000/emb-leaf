@@ -1174,6 +1174,12 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 
             default:
                 printf("Unexpected netdev event received: %d\n", event);
+#ifdef BOARD_LORA3A_SENSOR1 
+				simple_sleep_cmd (10);
+#endif
+#ifdef BOARD_LORA3A_DONGLE 
+				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
+#endif
                 break;
         }
     }

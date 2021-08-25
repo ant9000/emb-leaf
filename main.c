@@ -58,6 +58,7 @@ static uint16_t emb_address = 23;
   #endif
   #ifdef BOARD_LORA3A_DONGLE 
 static uint16_t emb_address = 254;
+uint32_t num_messages = 0;
   #endif
 #else
 static uint16_t emb_address = 1;
@@ -341,14 +342,19 @@ int listen_cmd(int argc, char **argv)
     /* Switch to continuous listen mode */
     const netopt_enable_t single = false;
     netdev->driver->set(netdev, NETOPT_SINGLE_RECEIVE, &single, sizeof(single));
-    const uint32_t timeout = 0;
+#ifdef BOARD_LORA3A_SENSOR1
+    const uint32_t timeout = 1000;
+#endif
+#ifdef BOARD_LORA3A_DONGLE
+    const uint32_t timeout = 9000;
+#endif    
     netdev->driver->set(netdev, NETOPT_RX_TIMEOUT, &timeout, sizeof(timeout));
 
     /* Switch to RX state */
     netopt_state_t state = NETOPT_STATE_RX;
     netdev->driver->set(netdev, NETOPT_STATE, &state, sizeof(state));
 
-    printf("Listen mode set\n");
+    puts("Listen mode set");
 
     return 0;
 }
@@ -841,6 +847,10 @@ int sleep_cmd(int argc, char **argv)
         // disable EXTINT wakeup
         RSTC->WKEN.reg = 0;
     }
+	strcpy (myargv0, "radio");
+	strcpy (myargv1, "off");
+	myargv[2] = NULL;
+	lora_radio_cmd (2, (char **)myargv);
 
     puts("Now entering backup mode.");
     // turn off PORT pins
@@ -867,6 +877,43 @@ int sleep_cmd(int argc, char **argv)
 
     return 0;
 }
+
+int simple_sleep_cmd(int seconds)
+{
+	if (seconds == 0) {
+		puts("Invalid value for seconds.");
+        return -1;
+    }
+
+    rtt_set_counter(0);
+    rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
+    // disable EXTINT wakeup
+    RSTC->WKEN.reg = 0;
+
+    puts("Now entering backup mode.");
+    // turn off PORT pins
+    size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
+    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
+    for (size_t i=0; i<num; i++) {
+        for (size_t j=0; j<num1; j++) {
+            PORT->Group[i].PINCFG[j].reg = 0;
+        }
+    }
+    // add pullups to console pins
+    for (size_t i=0; i<UART_NUMOF; i++) {
+        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
+        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
+    }
+#ifdef BOARD_SAMR34_XPRO
+    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
+    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
+#endif
+
+    pm_set(0);
+
+    return 0;
+}
+
 
 int debug_cmd(int argc, char **argv)
 {
@@ -1034,7 +1081,21 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
             case NETDEV_EVENT_RX_STARTED:
                 puts("Data reception started");
                 break;
-
+			
+			case NETDEV_EVENT_RX_TIMEOUT:
+				puts("RX TIMEOUT!");
+#ifdef BOARD_LORA3A_SENSOR1
+				strcpy (myargv0, "radio");
+				strcpy (myargv1, "off");
+				myargv[2] = NULL;
+				lora_radio_cmd (2, (char **)myargv);
+				simple_sleep_cmd (10);
+#endif
+#ifdef BOARD_LORA3A_DONGLE
+				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
+#endif
+				break;
+				
             case NETDEV_EVENT_RX_COMPLETE:
                 len = dev->driver->recv(dev, NULL, 0, 0);
                 dev->driver->recv(dev, message, len, &packet_info);
@@ -1083,12 +1144,14 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 	#endif
     #ifdef BOARD_LORA3A_DONGLE  
 						// received transmission from node src.
-						// tell him to sleep for 5 seconds
+						// tell him to sleep for 1 seconds
+						printf("Num messages received from node = %ld\n", ++num_messages);
 						strcpy(myargv0, "send_cmd");
-						strcpy(myargv1, "@5$");
+						strcpy(myargv1, "@1$");
 						sprintf(myargv2, "%d", src);
 						myargv[2]= myargv2;
 						myargv[3] = NULL;
+						ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
 						send_cmd(3, (char **)myargv);
 						listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
 	#endif	
@@ -1183,9 +1246,10 @@ int main(void)
     printf("Board = sensor1. address = %d\n", emb_address); 
     // Test sending data at wakeup then go in listen mode
     strcpy(myargv0, "tx_data");
-    sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff
+    sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff (see beginning of this file for addresses set
     myargv[2] = NULL;
 	tx_data(2, myargv);
+	ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
     listen_cmd(0, 0); // start in listen mode to accept commands from remote
   #endif
   #ifdef BOARD_LORA3A_DONGLE  

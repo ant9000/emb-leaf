@@ -10,6 +10,7 @@ TEST1_MODE ?= 0
 USEMODULE += od
 USEMODULE += od_string
 USEMODULE += fmt
+USEMODULE += printf_float
 USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps

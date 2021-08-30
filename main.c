@@ -13,6 +13,9 @@
 #include "stdio_uart.h"
 #include "stdio_base.h"
 #include "periph/init.h"
+#ifdef BOARD_LORA3A_SENSOR1
+#include "periph/i2c.h"
+#endif
 
 #include "periph/rtt.h"
 #include "periph/pm.h"
@@ -52,27 +55,27 @@ static char message[128];
 static sx127x_t sx127x;
 static bool sx127x_power = 0;
 static uint16_t emb_network = 1;
-#ifdef TEST1_MODE  
-  #ifdef BOARD_LORA3A_SENSOR1 
+#ifdef TEST1_MODE
+  #ifdef BOARD_LORA3A_SENSOR1
 static uint16_t emb_address = 23;
   #endif
-  #ifdef BOARD_LORA3A_DONGLE 
+  #ifdef BOARD_LORA3A_DONGLE
 static uint16_t emb_address = 254;
 uint32_t num_messages = 0;
   #endif
 #else
 static uint16_t emb_address = 1;
 #endif
-  
+
 static uint16_t emb_counter = 0;
 static bool emb_sniff = false;
 #endif
 
 
 	char myargv0[10];
-	char myargv1[40];
+	char myargv1[64];
 	char myargv2[10];
-	char *myargv[4] = { myargv0, myargv1, myargv2, NULL }; // allocate space for an argv like structure to be used to call RIOT shell commands from main or other functions 
+	char *myargv[4] = { myargv0, myargv1, myargv2, NULL }; // allocate space for an argv like structure to be used to call RIOT shell commands from main or other functions
 
 void debug_saml21(void);
 
@@ -347,7 +350,7 @@ int listen_cmd(int argc, char **argv)
 #endif
 #ifdef BOARD_LORA3A_DONGLE
     const uint32_t timeout = 9000;
-#endif    
+#endif
     netdev->driver->set(netdev, NETOPT_RX_TIMEOUT, &timeout, sizeof(timeout));
 
     /* Switch to RX state */
@@ -935,20 +938,80 @@ int vcc_cmd(int argc, char **argv)
     return 0;
 }
 
-int vpanel_cmd(int argc, char **argv)
+#ifdef BOARD_LORA3A_SENSOR1
+int read_vpanel(void)
 {
-    (void)argc;
-    (void)argv;
-
 	gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
 	gpio_set(GPIO_PIN(PA, 19));
 	ztimer_sleep(ZTIMER_MSEC, 10);
 	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
 	gpio_clear(GPIO_PIN(PA, 19));
-    printf("VPanel: %ld\n", vpanel);
-
     return (int)vpanel;
 }
+
+int vpanel_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("VPanel: %d\n", read_vpanel());
+    return 0;
+}
+
+double read_temp(void) {
+    uint8_t data[2];
+
+    if (i2c_write_reg(I2C_DEV(0), 0x40, 0x0f, 1, 0)) {
+        puts("ERROR: starting measure");
+        return 0;
+    }
+    if (i2c_read_reg(I2C_DEV(0), 0x40, 0, &(data[0]), 0)) {
+        puts("ERROR: reading measure first byte");
+        return 0;
+    }
+    if (i2c_read_reg(I2C_DEV(0), 0x40, 1, &(data[1]), 0)) {
+        puts("ERROR: reading measure second byte");
+        return 0;
+    }
+    return ((data[1] << 8) + data[0]) * 165. / (1 << 16) - 40;
+}
+
+int temp_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("Temp: %.2f\n", read_temp());
+    return 0;
+}
+
+double read_hum(void) {
+    uint8_t data[2];
+
+    if (i2c_write_reg(I2C_DEV(0), 0x40, 0x0f, 1, 0)) {
+        puts("ERROR: starting measure");
+        return 0;
+    }
+    if (i2c_read_reg(I2C_DEV(0), 0x40, 2, &(data[0]), 0)) {
+        puts("ERROR: reading measure first byte");
+        return 0;
+    }
+    if (i2c_read_reg(I2C_DEV(0), 0x40, 3, &(data[1]), 0)) {
+        puts("ERROR: reading measure second byte");
+        return 0;
+    }
+    return ((data[1] << 8) + data[0]) * 100. / (1 << 16);
+}
+
+int hum_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("Hum: %.2f\n", read_hum());
+    return 0;
+}
+#endif
 
 int persist_cmd(int argc, char **argv)
 {
@@ -989,6 +1052,7 @@ int persist_cmd(int argc, char **argv)
     return 0;
 }
 
+#ifdef BOARD_LORA3A_SENSOR1
 int tx_data(int argc, char **argv)
 {
 	uint16_t dst = 0xffff; // broadcast by default
@@ -1005,22 +1069,18 @@ int tx_data(int argc, char **argv)
 	int32_t vcc = adc_sample(0, ADC_RES_12BIT);
 
 	// read vpanel now
-	int myvpanel = vpanel_cmd(0,0);
-#if 0
-	gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 19));
-	ztimer_sleep(ZTIMER_MSEC, 10);
-	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
-	gpio_clear(GPIO_PIN(PA, 19));
-#endif
+	int myvpanel = read_vpanel();
+    double temp = read_temp();
+    double hum = read_hum();
 	strcpy(myargv0, "send_cmd");
-	sprintf(myargv1, "prova vcc=%ld, vpanel=%d", vcc, myvpanel);
+	sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc, myvpanel, temp, hum);
 	sprintf(myargv2, "%d", dst);
 	myargv[2]= myargv2;
 	myargv[3] = NULL;
 	send_cmd(3, (char **)myargv);
 	return 0;
 }
+#endif
 
 #endif
 
@@ -1038,18 +1098,24 @@ static const shell_command_t shell_commands[] = {
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
+#ifdef BOARD_LORA3A_SENSOR1
     { "txdata", "Send node data",						 	 tx_data },
 #endif
+#endif
 #ifdef CPU_SAML21
-    { "corefreq", "Get/Set core frequency",                    corefreq_cmd },
-    { "dividers", "Get/Set power domains dividers",            dividers_cmd },
-    { "perf",     "Get/Set performance level",                 perf_cmd },
-    { "vreg",     "Get/Set voltage regulator",                 vreg_cmd },
-    { "baud",     "Get/Set console baud rate",                 baud_cmd },
-    { "sleep",    "Enter minimal power mode",                  sleep_cmd },
-    { "debug",    "Show SAML21 peripherals config",            debug_cmd },
-    { "vcc",      "Read VCC from ADC",                         vcc_cmd },
-    { "vpanel",   "Read VPanel from ADC",                      vpanel_cmd },
+    { "corefreq", "Get/Set core frequency",                  corefreq_cmd },
+    { "dividers", "Get/Set power domains dividers",          dividers_cmd },
+    { "perf",     "Get/Set performance level",               perf_cmd },
+    { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
+    { "baud",     "Get/Set console baud rate",               baud_cmd },
+    { "sleep",    "Enter minimal power mode",                sleep_cmd },
+    { "debug",    "Show SAML21 peripherals config",          debug_cmd },
+    { "vcc",      "Read VCC from ADC",                       vcc_cmd },
+#ifdef BOARD_LORA3A_SENSOR1
+    { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
+    { "temp",     "Read temperature from HDC2021",           temp_cmd },
+    { "hum",      "Read humidity from HDC2021",              hum_cmd },
+#endif
     { "persist",  "Get/Set 64 bits unaffected by backup mode", persist_cmd },
 #endif
     { NULL, NULL, NULL }
@@ -1081,7 +1147,7 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
             case NETDEV_EVENT_RX_STARTED:
                 puts("Data reception started");
                 break;
-			
+
 			case NETDEV_EVENT_RX_TIMEOUT:
 				puts("RX TIMEOUT!");
 #ifdef BOARD_LORA3A_SENSOR1
@@ -1095,7 +1161,7 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
 #endif
 				break;
-				
+
             case NETDEV_EVENT_RX_COMPLETE:
                 len = dev->driver->recv(dev, NULL, 0, 0);
                 dev->driver->recv(dev, message, len, &packet_info);
@@ -1123,7 +1189,7 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
                         printf("EMB packet: dst=%04x, src=%04x, RSSI=%i, SNR=%i. Payload:\n", dst, src, packet_info.rssi, packet_info.snr);
                         od_hex_dump(message+10, len-10 < 128 ? len-10 : 128, 0);
 #ifdef TEST1_MODE
-    #ifdef BOARD_LORA3A_SENSOR1  
+    #ifdef BOARD_LORA3A_SENSOR1
                         // test of a remote command "go to sleep for n seconds (1 to 9)"
                         // message needs to have "@" as start packet and "#" as stop packet, the single digit number inside is the number of seconds to sleep
                         if (*(message+10) == '@')
@@ -1138,11 +1204,11 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 									sprintf (myargv1, "%ld", seconds);
 									myargv[2] = NULL;
 									sleep_cmd (2, (char **)myargv);
-								} else printf ("invalid number of seconds\n");	
-							} else printf ("invalid command received\n"); 
+								} else printf ("invalid number of seconds\n");
+							} else printf ("invalid command received\n");
 						}
 	#endif
-    #ifdef BOARD_LORA3A_DONGLE  
+    #ifdef BOARD_LORA3A_DONGLE
 						// received transmission from node src.
 						// tell him to sleep for 1 seconds
 						printf("Num messages received from node = %ld\n", ++num_messages);
@@ -1154,12 +1220,12 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 						ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
 						send_cmd(3, (char **)myargv);
 						listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
-	#endif	
-#endif	
+	#endif
+#endif
                     }
                 }
                 break;
- 
+
             case NETDEV_EVENT_TX_COMPLETE:
                 sx127x_set_sleep(&sx127x);
                 puts("Transmission completed");
@@ -1174,10 +1240,10 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 
             default:
                 printf("Unexpected netdev event received: %d\n", event);
-#ifdef BOARD_LORA3A_SENSOR1 
+#ifdef BOARD_LORA3A_SENSOR1
 				simple_sleep_cmd (10);
 #endif
-#ifdef BOARD_LORA3A_DONGLE 
+#ifdef BOARD_LORA3A_DONGLE
 				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
 #endif
                 break;
@@ -1247,9 +1313,9 @@ int main(void)
     puts("Initialization successful - starting the shell now");
     char line_buf[SHELL_DEFAULT_BUFSIZE];
 
-#ifdef TEST1_MODE  
-  #ifdef BOARD_LORA3A_SENSOR1 
-    printf("Board = sensor1. address = %d\n", emb_address); 
+#ifdef TEST1_MODE
+  #ifdef BOARD_LORA3A_SENSOR1
+    printf("Board = sensor1. address = %d\n", emb_address);
     // Test sending data at wakeup then go in listen mode
     strcpy(myargv0, "tx_data");
     sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff (see beginning of this file for addresses set
@@ -1258,11 +1324,11 @@ int main(void)
 	ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
     listen_cmd(0, 0); // start in listen mode to accept commands from remote
   #endif
-  #ifdef BOARD_LORA3A_DONGLE  
-    printf("Board = dongle. address = %d\n", emb_address); 
+  #ifdef BOARD_LORA3A_DONGLE
+    printf("Board = dongle. address = %d\n", emb_address);
     listen_cmd(0, 0); // start in listen mode to accept transmissions from nodes
-  #endif	
-#endif    
+  #endif
+#endif
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
     return 0;

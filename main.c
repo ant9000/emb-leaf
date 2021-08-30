@@ -13,9 +13,6 @@
 #include "stdio_uart.h"
 #include "stdio_base.h"
 #include "periph/init.h"
-#ifdef BOARD_LORA3A_SENSOR1
-#include "periph/i2c.h"
-#endif
 
 #include "periph/rtt.h"
 #include "periph/pm.h"
@@ -30,6 +27,7 @@
 #endif
 
 #include "board.h"
+#include "hdc2021.h"
 
 #ifdef MODULE_SX1276
 #include "thread.h"
@@ -958,49 +956,18 @@ int vpanel_cmd(int argc, char **argv)
     return 0;
 }
 
-double read_temp(void) {
-    uint8_t data[2];
-
-    if (i2c_write_reg(I2C_DEV(0), 0x40, 0x0f, 1, 0)) {
-        puts("ERROR: starting measure");
-        return 0;
-    }
-    if (i2c_read_reg(I2C_DEV(0), 0x40, 0, &(data[0]), 0)) {
-        puts("ERROR: reading measure first byte");
-        return 0;
-    }
-    if (i2c_read_reg(I2C_DEV(0), 0x40, 1, &(data[1]), 0)) {
-        puts("ERROR: reading measure second byte");
-        return 0;
-    }
-    return ((data[1] << 8) + data[0]) * 165. / (1 << 16) - 40;
-}
-
 int temp_cmd(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
 
-    printf("Temp: %.2f\n", read_temp());
+    double temp;
+    if (read_hdc2021(&temp, NULL)) {
+        puts("ERROR: reading temperature");
+        return 0;
+    }
+    printf("Temp: %.2f\n", temp);
     return 0;
-}
-
-double read_hum(void) {
-    uint8_t data[2];
-
-    if (i2c_write_reg(I2C_DEV(0), 0x40, 0x0f, 1, 0)) {
-        puts("ERROR: starting measure");
-        return 0;
-    }
-    if (i2c_read_reg(I2C_DEV(0), 0x40, 2, &(data[0]), 0)) {
-        puts("ERROR: reading measure first byte");
-        return 0;
-    }
-    if (i2c_read_reg(I2C_DEV(0), 0x40, 3, &(data[1]), 0)) {
-        puts("ERROR: reading measure second byte");
-        return 0;
-    }
-    return ((data[1] << 8) + data[0]) * 100. / (1 << 16);
 }
 
 int hum_cmd(int argc, char **argv)
@@ -1008,7 +975,12 @@ int hum_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    printf("Hum: %.2f\n", read_hum());
+    double hum;
+    if (read_hdc2021(NULL, &hum)) {
+        puts("ERROR: reading humidity");
+        return 0;
+    }
+    printf("Hum: %.2f\n", hum);
     return 0;
 }
 #endif
@@ -1070,8 +1042,10 @@ int tx_data(int argc, char **argv)
 
 	// read vpanel now
 	int myvpanel = read_vpanel();
-    double temp = read_temp();
-    double hum = read_hum();
+    double temp=0, hum=0;
+    if (read_hdc2021(&temp, &hum)) {
+		puts("HDC2021 is unreadable!");
+    }
 	strcpy(myargv0, "send_cmd");
 	sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc, myvpanel, temp, hum);
 	sprintf(myargv2, "%d", dst);

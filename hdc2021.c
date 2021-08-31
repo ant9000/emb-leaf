@@ -52,6 +52,8 @@ int read_hdc2021(double *temp, double *hum)
 #else
 int read_hdc2021(double *temp, double *hum)
 {
+    (void)temp;
+    (void)hum;
     puts("ERROR: sensor unavailable");
     return -1;
 }

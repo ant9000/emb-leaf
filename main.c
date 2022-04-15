@@ -92,7 +92,7 @@ int lora_radio_cmd(int argc, char **argv)
             puts("Radio already on");
             return -1;
         }
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
         gpio_init(TCXO_PWR_PIN, GPIO_OUT);
         gpio_set(TCXO_PWR_PIN);
         gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
@@ -113,7 +113,7 @@ int lora_radio_cmd(int argc, char **argv)
         sx127x_set_sleep(&sx127x);
         spi_release(sx127x.params.spi);
         spi_deinit_pins(sx127x.params.spi);
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
         gpio_clear(TCXO_PWR_PIN);
         gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
@@ -195,7 +195,7 @@ int lora_setup_cmd(int argc, char **argv)
     return 0;
 }
 
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
 int boost_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -344,11 +344,15 @@ int listen_cmd(int argc, char **argv)
     /* Switch to continuous listen mode */
     const netopt_enable_t single = false;
     netdev->driver->set(netdev, NETOPT_SINGLE_RECEIVE, &single, sizeof(single));
+    
 #ifdef BOARD_LORA3A_SENSOR1
     const uint32_t timeout = 1000;
 #endif
+#ifdef BOARD_LORA3A_H10
+    const uint32_t timeout = 10000;
+#endif
 #ifdef BOARD_LORA3A_DONGLE
-    const uint32_t timeout = 9000;
+    const uint32_t timeout = 10000;
 #endif
     netdev->driver->set(netdev, NETOPT_RX_TIMEOUT, &timeout, sizeof(timeout));
 
@@ -870,7 +874,7 @@ int sleep_cmd(int argc, char **argv)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
     gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
 #endif
@@ -906,7 +910,7 @@ int simple_sleep_cmd(int seconds)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
     gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
 #endif
@@ -936,6 +940,61 @@ int vcc_cmd(int argc, char **argv)
 
     return 0;
 }
+
+#ifdef BOARD_LORA3A_H10
+int read_vpanel(void)
+{
+	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 27));
+	ztimer_sleep(ZTIMER_MSEC, 10);
+	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+	gpio_clear(GPIO_PIN(PA, 27));
+    return (int)vpanel;
+}
+
+int vpanel_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("VPanel: %d\n", read_vpanel());
+    return 0;
+}
+
+int temp_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    double temp;
+	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 27));
+    if (read_hdc2021(&temp, NULL)) {
+        puts("ERROR: reading temperature");
+        return 0;
+    }
+	gpio_clear(GPIO_PIN(PA, 27));
+    printf("Temp: %.2f\n", temp);
+    return 0;
+}
+
+int hum_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    double hum;
+	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 27));
+    if (read_hdc2021(NULL, &hum)) {
+        puts("ERROR: reading humidity");
+        return 0;
+    }
+	gpio_clear(GPIO_PIN(PA, 27));
+    printf("Hum: %.2f\n", hum);
+    return 0;
+}
+#endif
 
 #ifdef BOARD_LORA3A_SENSOR1
 int read_vpanel(void)
@@ -1042,7 +1101,7 @@ int persist_cmd(int argc, char **argv)
     return 0;
 }
 
-#ifdef BOARD_LORA3A_SENSOR1
+#if defined(BOARD_LORA3A_H10) || defined(BOARD_LORA3A_SENSOR1)
 int tx_data(int argc, char **argv)
 {
 	uint16_t dst = 0xffff; // broadcast by default
@@ -1058,12 +1117,19 @@ int tx_data(int argc, char **argv)
 	// read vcc now
 	int32_t vcc = adc_sample(0, ADC_RES_12BIT);
 
-	// read vpanel now
+	// read vpanel and temp and hum now
+#ifdef BOARD_LORA3A_H10	
+	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 27));
+#endif
 	int myvpanel = read_vpanel();
     double temp=0, hum=0;
     if (read_hdc2021(&temp, &hum)) {
 		puts("HDC2021 is unreadable!");
     }
+#ifdef BOARD_LORA3A_H10	
+	gpio_clear(GPIO_PIN(PA, 27));
+#endif
 	strcpy(myargv0, "send_cmd");
 	sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc, myvpanel, temp, hum);
 	sprintf(myargv2, "%d", dst);
@@ -1083,14 +1149,14 @@ static const shell_command_t shell_commands[] = {
     { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
     { "network",  "Get/Set network identifier",              network_cmd },
     { "address",  "Get/Set network address",                 address_cmd },
-#ifdef BOARD_SAMR34_XPRO
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     { "boost",    "Get/Set power boost mode",                boost_cmd },
 #endif
     { "txpower",  "Get/Set transmission power",              txpower_cmd },
     { "send",     "Send string",                             send_cmd },
     { "listen",   "Listen for packets",                      listen_cmd },
     { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
-#ifdef BOARD_LORA3A_SENSOR1
+#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
     { "txdata", "Send node data",						 	 tx_data },
 #endif
 #endif
@@ -1103,7 +1169,7 @@ static const shell_command_t shell_commands[] = {
     { "sleep",    "Enter minimal power mode",                sleep_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
     { "vcc",      "Read VCC from ADC",                       vcc_cmd },
-#ifdef BOARD_LORA3A_SENSOR1
+#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
     { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
     { "temp",     "Read temperature from HDC2021",           temp_cmd },
     { "hum",      "Read humidity from HDC2021",              hum_cmd },
@@ -1150,6 +1216,12 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 				simple_sleep_cmd (10);
 #endif
 #ifdef BOARD_LORA3A_DONGLE
+				for (int i=0; i<50000; i++)
+				{
+					strcpy (myargv0, "radio"); // this takes approx 50ms
+				}
+//				ztimer_sleep(ZTIMER_MSEC, 50); // this creates stack error. changed with for()
+
 				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
 #endif
 				break;
@@ -1205,7 +1277,7 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 						// tell him to sleep for 1 seconds
 						printf("Num messages received from node = %ld\n", ++num_messages);
 						strcpy(myargv0, "send_cmd");
-						strcpy(myargv1, "@1$");
+						strcpy(myargv1, "@9$");
 						sprintf(myargv2, "%d", src);
 						myargv[2]= myargv2;
 						myargv[3] = NULL;
@@ -1236,6 +1308,10 @@ static void _event_cb(netdev_t *dev, netdev_event_t event)
 				simple_sleep_cmd (10);
 #endif
 #ifdef BOARD_LORA3A_DONGLE
+				for (int i=0; i<50000; i++)
+				{
+					strcpy (myargv0, "radio"); // this takes approx 50ms
+				}
 				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
 #endif
                 break;

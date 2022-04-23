@@ -371,6 +371,8 @@ int send_cmd(int argc, char **argv)
         .iol_base = header,
         .iol_len = (size_t)10
     };
+   	gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to PA_BOOST
+	gpio_clear(GPIO_PIN(PA, 13));
 
     netdev_t *netdev = (netdev_t *)&sx127x;
     if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
@@ -402,6 +404,9 @@ int listen_cmd(int argc, char **argv)
 #endif
 #ifdef BOARD_LORA3A_H10
     const uint32_t timeout = 10000;
+   	gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to RFInput
+	gpio_set(GPIO_PIN(PA, 13));
+
 #endif
 #ifdef BOARD_LORA3A_DONGLE
     const uint32_t timeout = 10000;

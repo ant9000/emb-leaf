@@ -15,6 +15,7 @@ USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
 USEMODULE += i2c_scan
+USEMODULE += ztimer_usec
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure

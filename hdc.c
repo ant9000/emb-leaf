@@ -32,7 +32,7 @@ int read_hdc(double *temp, double *hum)
     gpio_init(HDC_ENABLE, GPIO_OUT);
     gpio_set(HDC_ENABLE);
 
-    i2c_acquire(I2C_DEV(0));
+//    i2c_acquire(I2C_DEV(0));
 
     ztimer_sleep(ZTIMER_USEC, 4000);
     if (i2c_write_bytes(I2C_DEV(0), HDC3020_ADDR, command, sizeof(command), 0)) {

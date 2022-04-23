@@ -28,7 +28,9 @@
 #endif
 
 #include "board.h"
-#include "hdc2021.h"
+
+//#include "hdc2021.h"
+#include "hdc.h"
 
 #ifdef MODULE_SX1276
 #include "thread.h"
@@ -243,6 +245,56 @@ int boost_cmd(int argc, char **argv)
     return 0;
 }
 #endif
+
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
+int enableio_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: enableio <get|set>");
+        return -1;
+    }
+
+    if (!sx127x_power) {
+        puts("Radio is off");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+		gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+        bool enableio = gpio_read(GPIO_PIN(PA, 27));
+        printf("enableio mode: %s\n", enableio ? "set" : "cleared");
+        return 0;
+    }
+
+    if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: enableio set <on|off>");
+            return -1;
+        }
+        gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+        bool enableio =gpio_read(GPIO_PIN(PA, 27));
+        if (strstr(argv[2],"on") != NULL) {
+            if (!enableio) {
+                gpio_set(GPIO_PIN(PA, 27));
+                enableio = !enableio;
+            }
+        } else {
+            if (enableio) {
+                gpio_clear(GPIO_PIN(PA, 27));
+                enableio = !enableio;
+            }
+        }
+        printf("enableio mode %s\n", enableio ? "set" : "cleared");
+    }
+    else {
+        puts("usage: enableio <get|set>");
+        return -1;
+    }
+
+    return 0;
+}
+#endif
+
 
 int txpower_cmd(int argc, char **argv)
 {
@@ -969,7 +1021,7 @@ int temp_cmd(int argc, char **argv)
     double temp;
 	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
 	gpio_set(GPIO_PIN(PA, 27));
-    if (read_hdc2021(&temp, NULL)) {
+    if (read_hdc(&temp, NULL)) {
         puts("ERROR: reading temperature");
         return 0;
     }
@@ -986,7 +1038,7 @@ int hum_cmd(int argc, char **argv)
     double hum;
 	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
 	gpio_set(GPIO_PIN(PA, 27));
-    if (read_hdc2021(NULL, &hum)) {
+    if (read_hdc(NULL, &hum)) {
         puts("ERROR: reading humidity");
         return 0;
     }
@@ -1022,7 +1074,7 @@ int temp_cmd(int argc, char **argv)
     (void)argv;
 
     double temp;
-    if (read_hdc2021(&temp, NULL)) {
+    if (read_hdc(&temp, NULL)) {
         puts("ERROR: reading temperature");
         return 0;
     }
@@ -1036,7 +1088,7 @@ int hum_cmd(int argc, char **argv)
     (void)argv;
 
     double hum;
-    if (read_hdc2021(NULL, &hum)) {
+    if (read_hdc(NULL, &hum)) {
         puts("ERROR: reading humidity");
         return 0;
     }
@@ -1124,7 +1176,7 @@ int tx_data(int argc, char **argv)
 #endif
 	int myvpanel = read_vpanel();
     double temp=0, hum=0;
-    if (read_hdc2021(&temp, &hum)) {
+    if (read_hdc(&temp, &hum)) {
 		puts("HDC2021 is unreadable!");
     }
 #ifdef BOARD_LORA3A_H10	
@@ -1151,6 +1203,7 @@ static const shell_command_t shell_commands[] = {
     { "address",  "Get/Set network address",                 address_cmd },
 #if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     { "boost",    "Get/Set power boost mode",                boost_cmd },
+    { "enableio", "Enable/Disable peripherals H10",          enableio_cmd }, 
 #endif
     { "txpower",  "Get/Set transmission power",              txpower_cmd },
     { "send",     "Send string",                             send_cmd },

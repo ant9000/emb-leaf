@@ -402,7 +402,7 @@ int listen_cmd(int argc, char **argv)
 #ifdef BOARD_LORA3A_SENSOR1
     const uint32_t timeout = 1000;
 #endif
-#ifdef BOARD_LORA3A_H10
+#if defined(BOARD_LORA3A_H10) || defined(BOARD_SAMR34_XPRO)
     const uint32_t timeout = 10000;
    	gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to RFInput
 	gpio_set(GPIO_PIN(PA, 13));

@@ -993,8 +993,7 @@ int vcc_cmd(int argc, char **argv)
     (void)argv;
 
     int32_t vcc = adc_sample(0, ADC_RES_12BIT);
-    printf("VCC: %ld\n", vcc);
-
+    printf("VCC: %ld\n", vcc*4000/4095);  // rescaled vcc/4 to 1V=4095 counts
     return 0;
 }
 
@@ -1005,8 +1004,13 @@ int read_vpanel(void)
 	gpio_set(GPIO_PIN(PA, 27));
 	ztimer_sleep(ZTIMER_MSEC, 10);
 	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+	int32_t i;
+	for (i=0; i<7; i++) {
+		ztimer_sleep(ZTIMER_MSEC, 1);
+		vpanel += adc_sample(1, ADC_RES_12BIT);
+	}
 	gpio_clear(GPIO_PIN(PA, 27));
-    return (int)vpanel;
+    return (int)vpanel>>3;
 }
 
 int vpanel_cmd(int argc, char **argv)
@@ -1014,7 +1018,7 @@ int vpanel_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    printf("VPanel: %d\n", read_vpanel());
+    printf("VPanel: %d\n", read_vpanel()*3933/4095); // adapted to real resistor partition factor (75k over 220k)
     return 0;
 }
 

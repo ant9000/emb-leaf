@@ -33,6 +33,10 @@ ifeq ($(TEST1_MODE), 1)
   CFLAGS += -DTEST1_MODE
 endif
 
+ifeq ($(BOARD),lora3a-h10)
+  USEPKG += cryptoauthlib
+  CFLAGS += -DATCA_PARAM_ADDR=0x59
+endif
 
 USEMODULE += saul_default
 USEMODULE += periph_adc

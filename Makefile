@@ -4,6 +4,7 @@ RIOTBASE ?= $(CURDIR)/../RIOT
 LORA3ABASE ?= $(CURDIR)/../lora3a-boards
 EXTERNAL_BOARD_DIRS=$(LORA3ABASE)/boards
 EXTERNAL_MODULE_DIRS=$(LORA3ABASE)/modules
+EXTERNAL_PKG_DIRS=$(LORA3ABASE)/pkg
 QUIET ?= 1
 DEVELHELP ?= 1
 RADIO ?= 1
@@ -17,9 +18,8 @@ USEMODULE += printf_float
 USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += shell_extra_commands
-USEMODULE += ps
-USEMODULE += i2c_scan
 USEMODULE += ztimer_usec
+USEMODULE += periph_i2c
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure
@@ -38,11 +38,11 @@ ifeq ($(TEST1_MODE), 1)
 endif
 
 ifeq ($(BOARD),lora3a-h10)
-  USEPKG += cryptoauthlib
-  CFLAGS += -DATCA_PARAM_ADDR=0xb2
-  # TODO:
-  # - understand why we (0x59 << 1) is needed as address
-  # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
+# USEPKG += cryptoauthlib
+# CFLAGS += -DATCA_PARAM_ADDR=0xb2
+# # TODO:
+# # - understand why we (0x59 << 1) is needed as address
+# # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
 
 # # TEST: bme688 on Acme Sensor 1
 # USEMODULE += bme680_fp bme680_i2c

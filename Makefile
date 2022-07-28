@@ -40,6 +40,24 @@ endif
 ifeq ($(BOARD),lora3a-h10)
   USEPKG += cryptoauthlib
   CFLAGS += -DATCA_PARAM_ADDR=0xb2
+  # TODO:
+  # - understand why we (0x59 << 1) is needed as address
+  # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
+
+# # TEST: bme688 on Acme Sensor 1
+# USEMODULE += bme680_fp bme680_i2c
+# USEMODULE += periph_i2c_reconfigure
+# CFLAGS += -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
+# # TODO:
+# # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
+
+# # TEST: lis2dh12 on Acme Sensor 2
+# USEMODULE += lis2dh12_i2c
+# CFLAGS += -DLIS2DH12_PARAM_I2C=2 -DLIS2DH12_PARAM_INT_PIN1=1073752070
+# # TODO:
+# # - change to RIOT/drivers/lis2dh12/lis2dh12.c line 471: we need int on FALLING edge
+# # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
+# # - derive correct pin number from macro GPIO_PIN(PA, 6)
 endif
 
 USEMODULE += saul_default

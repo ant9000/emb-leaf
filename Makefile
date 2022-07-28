@@ -39,7 +39,7 @@ endif
 
 ifeq ($(BOARD),lora3a-h10)
   USEPKG += cryptoauthlib
-  CFLAGS += -DATCA_PARAM_ADDR=0x59
+  CFLAGS += -DATCA_PARAM_ADDR=0xb2
 endif
 
 USEMODULE += saul_default

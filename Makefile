@@ -1,6 +1,9 @@
 APPLICATION = emb-leaf
 BOARD ?= samr34-xpro
 RIOTBASE ?= $(CURDIR)/../RIOT
+LORA3ABASE ?= $(CURDIR)/../lora3a-boards
+EXTERNAL_BOARD_DIRS=$(LORA3ABASE)/boards
+EXTERNAL_MODULE_DIRS=$(LORA3ABASE)/modules
 QUIET ?= 1
 DEVELHELP ?= 1
 RADIO ?= 1
@@ -13,6 +16,7 @@ USEMODULE += fmt
 USEMODULE += printf_float
 USEMODULE += shell
 USEMODULE += shell_commands
+USEMODULE += shell_extra_commands
 USEMODULE += ps
 USEMODULE += i2c_scan
 USEMODULE += ztimer_usec

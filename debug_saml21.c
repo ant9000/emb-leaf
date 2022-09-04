@@ -253,7 +253,7 @@ void debug_saml21(void)
     num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
     for (size_t i=0; i<num; i++) {
         for (size_t j=0; j<num1; j++) {
-            if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
+//            if (PORT->Group[i].PINCFG[j].reg || (PORT->Group[i].DIR.reg & (1 << j))) {
                 printf(" P%c.%02d:", 'A' + i, j);
                 if (PORT->Group[i].PINCFG[j].bit.PMUXEN) {
                     printf(" MUX%c", 'A' + (((PORT->Group[i].PMUX[j/2].reg >> 4*(j % 2))) & 0x0f));
@@ -278,7 +278,7 @@ void debug_saml21(void)
                 }
                 puts("");
                 count++;
-            }
+//            }
         }
         char *event_actions[] = { "OUT", "SET", "CLR", "TGL" };
         if (PORT->Group[i].EVCTRL.bit.PORTEI0) {

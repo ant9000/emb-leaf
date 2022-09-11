@@ -10,6 +10,8 @@ DEVELHELP ?= 1
 RADIO ?= 1
 POWER_PROFILING ?= 0
 TEST1_MODE ?= 0
+BME688_ACME1 ?= 1
+BME688_ACME2 ?= 0
 
 USEMODULE += od
 USEMODULE += od_string
@@ -44,12 +46,23 @@ ifeq ($(BOARD),lora3a-h10)
 # # - understand why we (0x59 << 1) is needed as address
 # # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
 
-# # TEST: bme688 on Acme Sensor 1
-# USEMODULE += bme680_fp bme680_i2c
-# USEMODULE += periph_i2c_reconfigure
-# CFLAGS += -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
+ifeq ($(BME688_ACME1), 1)
+  USEMODULE += bme680_fp bme680_i2c
+  USEMODULE += periph_i2c_reconfigure
+  CFLAGS += -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
+# # - 11/9/22 now power acme sensor 1 is on at boot
+endif
+ifeq ($(BME688_ACME2), 1)
+  USEMODULE += bme680_fp bme680_i2c
+  USEMODULE += periph_i2c_reconfigure
+  CFLAGS += -DBME680_PARAM_I2C_DEV=2 -DBME680_PARAM_I2C_ADDR=0x76
+# # TODO:
+# # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
+# # - 11/9/22 now power acme sensor 2 is off at boot
+endif
+
 
 # # TEST: lis2dh12 on Acme Sensor 2
 # USEMODULE += lis2dh12_i2c

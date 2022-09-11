@@ -245,56 +245,6 @@ int boost_cmd(int argc, char **argv)
 }
 #endif
 
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-int enableio_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: enableio <get|set>");
-        return -1;
-    }
-
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
-
-    if (strstr(argv[1], "get") != NULL) {
-		gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-        bool enableio = gpio_read(GPIO_PIN(PA, 27));
-        printf("enableio mode: %s\n", enableio ? "set" : "cleared");
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: enableio set <on|off>");
-            return -1;
-        }
-        gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-        bool enableio =gpio_read(GPIO_PIN(PA, 27));
-        if (strstr(argv[2],"on") != NULL) {
-            if (!enableio) {
-                gpio_set(GPIO_PIN(PA, 27));
-                enableio = !enableio;
-            }
-        } else {
-            if (enableio) {
-                gpio_clear(GPIO_PIN(PA, 27));
-                enableio = !enableio;
-            }
-        }
-        printf("enableio mode %s\n", enableio ? "set" : "cleared");
-    }
-    else {
-        puts("usage: enableio <get|set>");
-        return -1;
-    }
-
-    return 0;
-}
-#endif
-
-
 int txpower_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -867,9 +817,10 @@ int baud_cmd(int argc, char **argv)
 int sleep_cmd(int argc, char **argv)
 {
     if (argc < 2) {
-        puts("usage: sleep [<seconds>|pin <num>]");
+        puts("usage: sleep [<mode> <seconds>|pin <num>]");
         return -1;
     }
+
 
 #ifdef POWER_PROFILING
     printf ("POWER_PROFILING=1\n");
@@ -878,7 +829,7 @@ int sleep_cmd(int argc, char **argv)
     ztimer_sleep(ZTIMER_MSEC, 1000);
     gpio_set(LED0_PIN);
 #endif
-
+    uint8_t sleepmode = 0;
     uint8_t extwake = 255;
     if (strstr(argv[1], "pin") != NULL) {
         if (argc < 3) {
@@ -897,7 +848,16 @@ int sleep_cmd(int argc, char **argv)
         RSTC->WKEN.reg = 1 << extwake;
         RSTC->WKPOL.reg &= ~(1 << extwake);
     } else {
-        uint32_t seconds = atoi(argv[1]);
+        if (argc < 3) {
+            puts("usage: sleep [<mode> <seconds>|pin <num>]");
+            return -1;
+        }
+        sleepmode = atoi(argv[1]);
+        uint32_t seconds = atoi(argv[2]);
+        if (sleepmode !=0 && sleepmode !=1 && sleepmode !=2) {
+            puts("Invalid value for sleep mode.");
+            return -1;
+        }
         if (seconds == 0) {
             puts("Invalid value for seconds.");
             return -1;
@@ -934,28 +894,88 @@ int sleep_cmd(int argc, char **argv)
 //    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
 //    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
 //#endif
-    gpio_init(GPIO_PIN(PA, 9), GPIO_OUT);
-    gpio_clear(GPIO_PIN(PA, 9));
-    gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);
-    gpio_clear(GPIO_PIN(PA, 13));
 
-    gpio_init(GPIO_PIN(PA, 4), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PA, 5), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PA, 6), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PA, 7), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PA, 8), GPIO_IN_PD);
+//    gpio_init(GPIO_PIN(PA, 9), GPIO_OUT);
+//    gpio_clear(GPIO_PIN(PA, 9));
+//    gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);
+//    gpio_clear(GPIO_PIN(PA, 13));
 
-    gpio_init(GPIO_PIN(PB, 2), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PB, 3), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PB, 22), GPIO_IN_PU);
-    gpio_init(GPIO_PIN(PB, 23), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PA, 4), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PA, 5), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PA, 6), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PA, 7), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PA, 8), GPIO_IN_PD);
+
+//    gpio_init(GPIO_PIN(PB, 2), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PB, 3), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PB, 22), GPIO_IN_PU);
+//    gpio_init(GPIO_PIN(PB, 23), GPIO_IN_PU);
+ 
+ //   gpio_init(GPIO_PIN(PA, 30), GPIO_IN);
+
+//    gpio_init(GPIO_PIN(PA, 27), GPIO_IN_PD);  // disable H10 internal Sensors in backup mode
+//    gpio_init(GPIO_PIN(PA, 28), GPIO_IN_PU);  // disable ACME Sensor 2 in backup mode
+//    gpio_init(GPIO_PIN(PA, 31), GPIO_IN_PD);  // disable ACME Sensor 2 in backup mode
+
+//    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
+
     
-	debug_saml21();
+//	debug_saml21();
 	
-    pm_set(0);
+    pm_set(sleepmode);
+
+//    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of standby (pm_set(1) sleep
+
 
     return 0;
 }
+
+int sleep_msec_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: sleep [<mode> <milliseconds>]");
+        return -1;
+    }
+
+printf("args: %s %s %s\n",argv[0], argv[1],argv[2]);
+
+    uint8_t sleepmode = 0;
+//    uint8_t extwake = 255;
+		if (argc < 3) {
+            puts("usage: sleep [<mode> <milliseconds>]");
+            return -1;
+        }
+		sleepmode = atoi(argv[1]);
+        uint32_t mseconds = atoi(argv[2]);
+        if (sleepmode !=0 && sleepmode !=1 && sleepmode !=2) {
+            puts("Invalid value for sleep mode.");
+            return -1;
+        }
+        if (mseconds == 0) {
+            puts("Invalid value for milliseconds.");
+            return -1;
+        }
+        printf("Scheduling an RTC wakeup in %lu milliseconds.\n", mseconds);
+
+        rtt_set_counter(0);
+        rtt_set_alarm(RTT_MS_TO_TICKS(mseconds), NULL, NULL);
+        // disable EXTINT wakeup
+        RSTC->WKEN.reg = 0;
+	strcpy (myargv0, "radio");
+	strcpy (myargv1, "off");
+	myargv[2] = NULL;
+	lora_radio_cmd (2, (char **)myargv);
+  
+//	debug_saml21();
+    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
+	
+    pm_set(sleepmode);
+
+    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of standby (pm_set(1) sleep
+
+    return 0;
+}
+
 
 int simple_sleep_cmd(int seconds)
 {
@@ -970,6 +990,7 @@ int simple_sleep_cmd(int seconds)
     RSTC->WKEN.reg = 0;
 
     puts("Now entering backup mode.");
+#if 0
     // turn off PORT pins
     size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
     size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
@@ -983,6 +1004,7 @@ int simple_sleep_cmd(int seconds)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
+#endif    
 #if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
     gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
@@ -1228,7 +1250,6 @@ static const shell_command_t shell_commands[] = {
     { "address",  "Get/Set network address",                 address_cmd },
 #if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
     { "boost",    "Get/Set power boost mode",                boost_cmd },
-    { "enableio", "Enable/Disable peripherals H10",          enableio_cmd }, 
 #endif
     { "txpower",  "Get/Set transmission power",              txpower_cmd },
     { "send",     "Send string",                             send_cmd },
@@ -1244,7 +1265,8 @@ static const shell_command_t shell_commands[] = {
     { "perf",     "Get/Set performance level",               perf_cmd },
     { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
     { "baud",     "Get/Set console baud rate",               baud_cmd },
-    { "sleep",    "Enter minimal power mode",                sleep_cmd },
+    { "sleep",    "Enter power save modes",                sleep_cmd },
+    { "msecsleep","Enter sleep mode msec",                sleep_msec_cmd },
     { "debug",    "Show SAML21 peripherals config",          debug_cmd },
     { "vcc",      "Read VCC from ADC",                       vcc_cmd },
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
@@ -1420,8 +1442,12 @@ void *_recv_thread(void *arg)
 
 int main(void)
 {
+	
+    puts("\n\n\n");
     size_t len = rtc_mem_size();
     printf("RTC mem size: %d\n", len);
+//    debug_saml21();
+
 
 #ifdef MODULE_SX1276
     sx127x.params = sx127x_params[0];
@@ -1438,13 +1464,24 @@ int main(void)
         return 1;
     }
 
-    // power on the radio at boot
+    gpio_set(TCXO_PWR_PIN);
+    // init the radio at boot and switch it off. It seems that you cannot avoid to initialize the radio otherwise it will draw more power
     if (netdev->driver->init(netdev) < 0) {
         puts("Failed to reinitialize SX127x device, exiting");
         return -1;
     }
-    sx127x_power = 1;
+
+    sx127x_set_sleep(&sx127x);
+    spi_release(sx127x.params.spi);
+    spi_deinit_pins(sx127x.params.spi);
+#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
+    gpio_clear(TCXO_PWR_PIN);
+    gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
+    sx127x_power = 0;
+
+#endif
+
 
 #ifdef POWER_PROFILING
     gpio_init(LED1_PIN, GPIO_OUT);
@@ -1452,7 +1489,7 @@ int main(void)
     ztimer_sleep(ZTIMER_MSEC, 1000);
     gpio_set(LED1_PIN);
 #endif
-
+    printf("EMB-LEAF Compiled: %s,%s\n", __DATE__, __TIME__);
     /* start the shell */
     puts("Initialization successful - starting the shell now");
     char line_buf[SHELL_DEFAULT_BUFSIZE];

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <inttypes.h>
 
+#include "debug_saml21.h"
 #include "shell.h"
 #include "od.h"
 #include "fmt.h"
@@ -76,8 +77,6 @@ static bool emb_sniff = false;
 	char myargv1[64];
 	char myargv2[10];
 	char *myargv[4] = { myargv0, myargv1, myargv2, NULL }; // allocate space for an argv like structure to be used to call RIOT shell commands from main or other functions
-
-void debug_saml21(void);
 
 #ifdef MODULE_SX1276
 int lora_radio_cmd(int argc, char **argv)

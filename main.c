@@ -4,7 +4,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "debug_saml21.h"
+#include "saml21_cpu_debug.h"
 #include "shell.h"
 #include "od.h"
 #include "fmt.h"
@@ -919,7 +919,7 @@ int sleep_cmd(int argc, char **argv)
 //    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 
     
-//	debug_saml21();
+//	saml21_cpu_debug();
 	
     pm_set(sleepmode);
 
@@ -965,7 +965,7 @@ printf("args: %s %s %s\n",argv[0], argv[1],argv[2]);
 	myargv[2] = NULL;
 	lora_radio_cmd (2, (char **)myargv);
   
-//	debug_saml21();
+//	_saml21_cpu_debug();
     gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 	
     pm_set(sleepmode);
@@ -1020,7 +1020,7 @@ int debug_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    debug_saml21();
+    saml21_cpu_debug();
     return 0;
 }
 
@@ -1445,7 +1445,7 @@ int main(void)
     puts("\n\n\n");
     size_t len = rtc_mem_size();
     printf("RTC mem size: %d\n", len);
-//    debug_saml21();
+//    saml21_cpu_debug();
 
 
 #ifdef MODULE_SX1276

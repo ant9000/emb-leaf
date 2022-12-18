@@ -23,7 +23,7 @@ USEMODULE += shell_cmds_default
 USEMODULE += shell_extra_commands
 USEMODULE += ztimer_usec
 USEMODULE += periph_i2c
-USEMODULE += debug_saml21
+USEMODULE += saml21_cpu_debug
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure

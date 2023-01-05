@@ -43,6 +43,12 @@
 #include "sx127x_params.h"
 #include "sx127x_netdev.h"
 
+#include "saml21_backup_mode.h"
+#include "periph/spi.h"
+#include "periph/i2c.h"
+#include "periph/uart.h"
+
+
 
 #define SX127X_LORA_MSG_QUEUE   (16U)
 #define SX127X_STACKSIZE        (THREAD_STACKSIZE_DEFAULT)
@@ -71,6 +77,14 @@ static uint16_t emb_address = 1;
 static uint16_t emb_counter = 0;
 static bool emb_sniff = false;
 #endif
+
+/* use { .pin=EXTWAKE_NONE } to disable */
+#define EXTWAKE { \
+    .pin=EXTWAKE_PIN6, \
+    .polarity=EXTWAKE_HIGH, \
+    .flags=EXTWAKE_IN_PU }
+static saml21_extwake_t extwakeEMB = EXTWAKE;
+
 
 
 	char myargv0[10];
@@ -813,6 +827,62 @@ int baud_cmd(int argc, char **argv)
     return 0;
 }
 
+void poweroff_devices(void)
+{
+ //   size_t i;
+    gpio_set(TCXO_PWR_PIN);
+
+    // turn radio off
+    sx127x_t sx127x;
+    sx127x.params = sx127x_params[0];
+    spi_init(sx127x.params.spi);
+    sx127x_init(&sx127x);
+ //   sx127x_reset(&sx127x);
+    sx127x_set_sleep(&sx127x);
+#ifdef TCXO_PWR_PIN
+    gpio_clear(TCXO_PWR_PIN);
+#endif
+#ifdef TX_OUTPUT_SEL_PIN
+    gpio_clear(TX_OUTPUT_SEL_PIN);
+#endif
+
+#if 0
+    // turn SPI devices off
+    for(i = 0; i < SPI_NUMOF; i++) {
+        spi_release(SPI_DEV(i));
+        spi_deinit_pins(SPI_DEV(i));
+        gpio_init(spi_config[i].miso_pin, GPIO_IN_PD);
+        gpio_init(spi_config[i].mosi_pin, GPIO_IN_PD);
+        gpio_init(spi_config[i].clk_pin, GPIO_IN_PD);
+    }
+
+    // turn I2C devices off
+    for(i = 0; i < I2C_NUMOF; i++) {
+        i2c_release(I2C_DEV(i));
+        i2c_deinit_pins(I2C_DEV(i));
+        gpio_init(i2c_config[i].scl_pin, GPIO_IN_PU);
+        gpio_init(i2c_config[i].sda_pin, GPIO_IN_PU);
+    }
+
+    // turn EIC off
+    EIC->CTRLA.bit.ENABLE = 0;
+    while (EIC->SYNCBUSY.bit.ENABLE);
+
+    saml21_cpu_debug();
+
+    // turn UART devices off
+    for(i = 0; i < UART_NUMOF; i++) {
+        uart_poweroff(UART_DEV(i));
+        uart_deinit_pins(UART_DEV(i));
+        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
+        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
+    }
+#endif    
+}
+
+
+
+
 int sleep_cmd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -820,6 +890,7 @@ int sleep_cmd(int argc, char **argv)
         return -1;
     }
 
+uint32_t seconds=10;
 
 #ifdef POWER_PROFILING
     printf ("POWER_PROFILING=1\n");
@@ -829,30 +900,30 @@ int sleep_cmd(int argc, char **argv)
     gpio_set(LED0_PIN);
 #endif
     uint8_t sleepmode = 0;
-    uint8_t extwake = 255;
+    uint8_t extwakeOLD = 255;
     if (strstr(argv[1], "pin") != NULL) {
         if (argc < 3) {
             puts("usage: sleep [<seconds>|pin <num>]");
             return -1;
         }
-        extwake = atoi(argv[2]) & 0x0F;
-        if (extwake > 7) {
+        extwakeOLD = atoi(argv[2]) & 0x0F;
+        if (extwakeOLD > 7) {
             puts("Available pins: 0 - 7 only.");
             return -1;
         }
-        printf("Enabling PA%02d as external wakeup pin.\n", extwake);
-        gpio_init(GPIO_PIN(PA, extwake), GPIO_IN_PU);
+        printf("Enabling PA%02d as external wakeup pin.\n", extwakeOLD);
+        gpio_init(GPIO_PIN(PA, extwakeOLD), GPIO_IN_PU);
         // wait for pin to settle
-        while (!(PORT->Group[0].IN.reg & (1 << extwake))) {}
-        RSTC->WKEN.reg = 1 << extwake;
-        RSTC->WKPOL.reg &= ~(1 << extwake);
+        while (!(PORT->Group[0].IN.reg & (1 << extwakeOLD))) {}
+        RSTC->WKEN.reg = 1 << extwakeOLD;
+        RSTC->WKPOL.reg &= ~(1 << extwakeOLD);
     } else {
         if (argc < 3) {
             puts("usage: sleep [<mode> <seconds>|pin <num>]");
             return -1;
         }
         sleepmode = atoi(argv[1]);
-        uint32_t seconds = atoi(argv[2]);
+        seconds = atoi(argv[2]);
         if (sleepmode !=0 && sleepmode !=1 && sleepmode !=2) {
             puts("Invalid value for sleep mode.");
             return -1;
@@ -861,12 +932,14 @@ int sleep_cmd(int argc, char **argv)
             puts("Invalid value for seconds.");
             return -1;
         }
+#if 0  // superseeded by saml21_backup_mode_enter        
         printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
 
         rtt_set_counter(0);
         rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
         // disable EXTINT wakeup
         RSTC->WKEN.reg = 0;
+#endif        
     }
 	strcpy (myargv0, "radio");
 	strcpy (myargv1, "off");
@@ -874,6 +947,7 @@ int sleep_cmd(int argc, char **argv)
 	lora_radio_cmd (2, (char **)myargv);
 
     puts("Now entering backup mode.");
+    
     // turn off PORT pins
 //   size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
 //    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
@@ -919,9 +993,13 @@ int sleep_cmd(int argc, char **argv)
 //    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 
     
+    poweroff_devices();
+
 //	saml21_cpu_debug();
+
+    saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds);
 	
-    pm_set(sleepmode);
+//    pm_set(sleepmode);
 
 //    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of standby (pm_set(1) sleep
 
@@ -965,7 +1043,6 @@ printf("args: %s %s %s\n",argv[0], argv[1],argv[2]);
 	myargv[2] = NULL;
 	lora_radio_cmd (2, (char **)myargv);
   
-//	_saml21_cpu_debug();
     gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 	
     pm_set(sleepmode);

@@ -52,7 +52,7 @@ ifeq ($(BOARD),lora3a-h10)
 ifeq ($(BME688_ACME1), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DENABLE_ACME1=1 -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 1 is on at boot only if requested
@@ -60,7 +60,7 @@ endif
 ifeq ($(BME688_ACME2), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=2 -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DENABLE_ACME2=1 -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=2 -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 2 is on at boot only if requested

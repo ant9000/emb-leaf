@@ -12,6 +12,7 @@ POWER_PROFILING ?= 0
 TEST1_MODE ?= 0
 BME688_ACME1 ?= 0
 BME688_ACME2 ?= 0
+RESISTOR ?= 0
 
 USEMODULE += od
 USEMODULE += od_string
@@ -25,6 +26,10 @@ USEMODULE += ztimer_usec
 USEMODULE += periph_i2c
 USEMODULE += saml21_cpu_debug
 USEMODULE += saml21_backup_mode
+
+ifeq ($(RESISTOR), 1)
+  CFLAGS += -DRESISTOR
+endif
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure

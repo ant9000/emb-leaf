@@ -747,6 +747,45 @@ int perf_cmd(int argc, char **argv)
     }
     return 0;
 }
+#if 0
+int vref_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        puts("usage: vref <get|set>");
+        return -1;
+    }
+
+    if (strstr(argv[1], "get") != NULL) {
+        printf("Voltage reference: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
+        return 0;
+    } else if (strstr(argv[1], "set") != NULL) {
+        if (argc < 3) {
+            puts("usage: vref set <reference>");
+            return -1;
+        }
+        uint8_t vref;
+        if (strstr(argv[2], "ldo") != NULL) {
+            vreg = SAM0_VREG_LDO;
+        } else if (strstr(argv[2], "buck") != NULL) {
+            if (saml21_corefreq() == 48) {
+                puts("Buck regulator can't be used with 48MHz core clock");
+                return -1;
+            }
+            vref = SAM0_VREG_BUCK;
+        } else {
+            puts("Available regulators: ldo, buck");
+            return -1;
+        }
+        SUPC->VREG.bit.SEL = vref;
+        while (!SUPC->STATUS.bit.VREGRDY) {}
+        printf("Voltage reference now: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
+    } else {
+        puts("usage: vref <get|set>");
+        return -1;
+    }
+    return 0;
+}
+#endif
 
 int vreg_cmd(int argc, char **argv)
 {
@@ -997,7 +1036,7 @@ uint32_t seconds=10;
 
 //	saml21_cpu_debug();
 
-    saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds);
+    saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds, 1);
 	
 //    pm_set(sleepmode);
 
@@ -1101,17 +1140,95 @@ int debug_cmd(int argc, char **argv)
     return 0;
 }
 
+
+
 int vcc_cmd(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
 
     int32_t vcc = adc_sample(0, ADC_RES_12BIT);
-    printf("VCC: %ld\n", vcc*4000/4095);  // rescaled vcc/4 to 1V=4095 counts
+    printf("VCC: %ld  VCC rescaled: %ld,\n", vcc, vcc*4000/4095);  // rescaled vcc/4 to 1V=4095 counts
     return 0;
 }
 
 #ifdef BOARD_LORA3A_H10
+
+#if 0      // not working probably The temperature sensor is enabled/disabled by setting/clearing the Temperature Sensor Enable bit in the Voltage Reference register (VREF.TSEN).
+
+int read_cputemp(void)
+{
+	int32_t temp = adc_sample(4, ADC_RES_12BIT);
+	int32_t i;
+	for (i=0; i<7; i++) {
+		ztimer_sleep(ZTIMER_MSEC, 1);
+		temp += adc_sample(4, ADC_RES_12BIT);
+	}
+    return (int)temp>>3;
+}
+
+int cputemp_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("CPUTemp: %d\n", read_cputemp()); 
+    return 0;
+}
+#endif
+
+int read_bandgap(void)
+{
+	int32_t vbandgap = adc_sample(3, ADC_RES_12BIT);
+	int32_t i;
+	for (i=0; i<7; i++) {
+		ztimer_sleep(ZTIMER_MSEC, 1);
+		vbandgap += adc_sample(3, ADC_RES_12BIT);
+	}
+    return (int)vbandgap>>3;
+}
+
+int bandgap_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("Bandgap: %d\n", read_bandgap()); 
+    return 0;
+}
+
+
+int read_resistor(void)
+{
+	printf("ADC_NUMOF = %d\n", ADC_NUMOF);
+	gpio_init(GPIO_PIN(PA, 31), GPIO_OUT);
+	gpio_set(GPIO_PIN(PA, 31));
+	ztimer_sleep(ZTIMER_MSEC, 100);
+	int32_t vresistor = adc_sample(2, ADC_RES_12BIT);
+	printf("ADC_2 READ = %ld\n", vresistor);
+//	ztimer_sleep(ZTIMER_MSEC, 400);
+	int32_t i;
+	for (i=0; i<31; i++) {
+//		ztimer_sleep(ZTIMER_MSEC, 1);
+		vresistor += adc_sample(2, ADC_RES_12BIT);
+		printf("ADC_2 READ = %ld\n", vresistor);
+//	ztimer_sleep(ZTIMER_MSEC, 400);
+	}
+	gpio_clear(GPIO_PIN(PA, 31));
+//	saml21_cpu_debug();
+    return (int)vresistor>>5;
+}
+
+int vresistor_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printf("VResistor: %d\n", read_resistor());
+    return 0;
+}
+
+
 int read_vpanel(void)
 {
 	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
@@ -1347,6 +1464,9 @@ static const shell_command_t shell_commands[] = {
     { "vcc",      "Read VCC from ADC",                       vcc_cmd },
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
     { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
+    { "vresistor",   "Read VResistor from ADC",              vresistor_cmd },
+    { "bandgap",   "Read Internal reference voltage from ADC", bandgap_cmd },
+//    { "cputemp",   "Read Internal CPU Temperature from ADC",   cputemp_cmd },
     { "temp",     "Read temperature from HDC2021",           temp_cmd },
     { "hum",      "Read humidity from HDC2021",              hum_cmd },
 #endif

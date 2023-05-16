@@ -74,12 +74,14 @@ endif
 
 # # TEST: lis2dh12 on Acme Sensor 2
 # USEMODULE += lis2dh12_i2c
-# CFLAGS += -DLIS2DH12_PARAM_I2C=2 -DLIS2DH12_PARAM_INT_PIN1=1073752070
+# CFLAGS += -DLIS2DH12_PARAM_I2C=2 -DLIS2DH12_PARAM_INT_PIN1=GPIO_PIN\(PA,6\)
 # # TODO:
 # # - change to RIOT/drivers/lis2dh12/lis2dh12.c line 471: we need int on FALLING edge
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
-# # - derive correct pin number from macro GPIO_PIN(PA, 6)
 endif
+
+USEMODULE += ds18
+CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
 
 USEMODULE += saul_default
 USEMODULE += periph_adc

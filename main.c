@@ -31,6 +31,7 @@
 
 //#include "hdc2021.h"
 #include "hdc.h"
+#include "lis2dw12.h"
 
 #ifdef MODULE_SX1276
 #include "thread.h"
@@ -1335,7 +1336,22 @@ int hum_cmd(int argc, char **argv)
     printf("Hum: %.2f\n", hum);
     return 0;
 }
+
 #endif
+
+int acc_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    float x_mg, y_mg, z_mg;
+    if (read_lis2dw12(&x_mg, &y_mg, &z_mg)) {
+        puts("ERROR: reading acceleration");
+        return 0;
+    }
+    printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f\n", x_mg, y_mg, z_mg);
+    return 0;
+}
 
 int persist_cmd(int argc, char **argv)
 {
@@ -1470,6 +1486,7 @@ static const shell_command_t shell_commands[] = {
     { "temp",     "Read temperature from HDC2021",           temp_cmd },
     { "hum",      "Read humidity from HDC2021",              hum_cmd },
 #endif
+    { "acc",      "Read acceleration from LIS2DW12",         acc_cmd },
     { "persist",  "Get/Set 64 bits unaffected by backup mode", persist_cmd },
 #endif
     { NULL, NULL, NULL }

@@ -1,29 +1,28 @@
 #include <errno.h>
+#include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
 
+#include "fmt.h"
+#include "od.h"
+#include "periph/adc.h"
+#include "periph/gpio.h"
+#include "periph/init.h"
+#include "periph/pm.h"
+#include "periph/rtc_mem.h"
+#include "periph/rtt.h"
+#include "periph/uart.h"
 #include "saml21_cpu_debug.h"
 #include "shell.h"
-#include "od.h"
-#include "fmt.h"
-
-#include "periph/uart.h"
-#include "stdio_uart.h"
 #include "stdio_base.h"
-#include "periph/init.h"
-
-#include "periph/rtt.h"
-#include "periph/pm.h"
-#include "periph/gpio.h"
-#include "periph/adc.h"
-#include "periph/rtc_mem.h"
+#include "stdio_uart.h"
 #ifdef POWER_PROFILING
 #include "ztimer.h"
 #ifdef BOARD_LORA3A_DONGLE
-#define LED0_PIN  RGBLED_RED
-#define LED1_PIN  RGBLED_GREEN
+#define LED0_PIN RGBLED_RED
+#define LED1_PIN RGBLED_GREEN
 #endif
 #endif
 
@@ -34,27 +33,23 @@
 #include "lis2dw12.h"
 
 #ifdef MODULE_SX1276
-#include "thread.h"
+#include "net/lora.h"
 #include "net/netdev.h"
 #include "net/netdev/lora.h"
-#include "net/lora.h"
-
+#include "periph/i2c.h"
+#include "periph/spi.h"
+#include "periph/uart.h"
+#include "saml21_backup_mode.h"
 #include "sx127x.h"
 #include "sx127x_internal.h"
-#include "sx127x_params.h"
 #include "sx127x_netdev.h"
+#include "sx127x_params.h"
+#include "thread.h"
 
-#include "saml21_backup_mode.h"
-#include "periph/spi.h"
-#include "periph/i2c.h"
-#include "periph/uart.h"
+#define SX127X_LORA_MSG_QUEUE (16U)
+#define SX127X_STACKSIZE (THREAD_STACKSIZE_DEFAULT)
 
-
-
-#define SX127X_LORA_MSG_QUEUE   (16U)
-#define SX127X_STACKSIZE        (THREAD_STACKSIZE_DEFAULT)
-
-#define MSG_TYPE_ISR            (0x3456)
+#define MSG_TYPE_ISR (0x3456)
 
 static char stack[SX127X_STACKSIZE];
 static kernel_pid_t _recv_pid;
@@ -64,13 +59,13 @@ static sx127x_t sx127x;
 static bool sx127x_power = 0;
 static uint16_t emb_network = 1;
 #ifdef TEST1_MODE
-  #ifdef BOARD_LORA3A_SENSOR1
+#ifdef BOARD_LORA3A_SENSOR1
 static uint16_t emb_address = 23;
-  #endif
-  #ifdef BOARD_LORA3A_DONGLE
+#endif
+#ifdef BOARD_LORA3A_DONGLE
 static uint16_t emb_address = 254;
 uint32_t num_messages = 0;
-  #endif
+#endif
 #else
 static uint16_t emb_address = 1;
 #endif
@@ -80,673 +75,665 @@ static bool emb_sniff = false;
 #endif
 
 /* use { .pin=EXTWAKE_NONE } to disable */
-#define EXTWAKE { \
-    .pin=EXTWAKE_PIN6, \
-    .polarity=EXTWAKE_HIGH, \
-    .flags=EXTWAKE_IN_PU }
+#define EXTWAKE \
+  { .pin = EXTWAKE_PIN6, .polarity = EXTWAKE_HIGH, .flags = EXTWAKE_IN_PU }
 static saml21_extwake_t extwakeEMB = EXTWAKE;
 
-
-
-	char myargv0[10];
-	char myargv1[64];
-	char myargv2[10];
-	char *myargv[4] = { myargv0, myargv1, myargv2, NULL }; // allocate space for an argv like structure to be used to call RIOT shell commands from main or other functions
+char myargv0[10];
+char myargv1[64];
+char myargv2[10];
+char *myargv[4] = {
+    myargv0, myargv1, myargv2,
+    NULL};  // allocate space for an argv like structure to be used to call RIOT
+            // shell commands from main or other functions
 
 #ifdef MODULE_SX1276
-int lora_radio_cmd(int argc, char **argv)
-{
+int lora_radio_cmd(int argc, char **argv) {
+  if (argc != 2) {
+    puts("usage: radio on|off");
+    return -1;
+  }
 
-    if (argc != 2) {
-        puts("usage: radio on|off");
-        return -1;
+  if (strstr(argv[1], "on") != NULL) {
+    if (sx127x_power) {
+      puts("Radio already on");
+      return -1;
     }
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+    gpio_init(TCXO_PWR_PIN, GPIO_OUT);
+    gpio_set(TCXO_PWR_PIN);
+    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
+    gpio_write(TX_OUTPUT_SEL_PIN, !SX127X_PARAM_PASELECT);
+#endif
+    spi_init(sx127x.params.spi);
+    netdev_t *netdev = (netdev_t *)&sx127x;
+    if (netdev->driver->init(netdev) < 0) {
+      puts("Failed to reinitialize SX127x device, exiting");
+      return -1;
+    }
+    sx127x_power = 1;
+  } else if (strstr(argv[1], "off") != NULL) {
+    if (!sx127x_power) {
+      puts("Radio already off");
+      return -1;
+    }
+    sx127x_set_sleep(&sx127x);
+    spi_release(sx127x.params.spi);
+    spi_deinit_pins(sx127x.params.spi);
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+    gpio_clear(TCXO_PWR_PIN);
+    gpio_clear(TX_OUTPUT_SEL_PIN);
+#endif
+    sx127x_power = 0;
+  } else {
+    puts("usage: radio on|off");
+    return -1;
+  }
+  return 0;
+}
 
-    if (strstr(argv[1], "on") != NULL) {
-        if (sx127x_power) {
-            puts("Radio already on");
-            return -1;
-        }
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-        gpio_init(TCXO_PWR_PIN, GPIO_OUT);
-        gpio_set(TCXO_PWR_PIN);
-        gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
-        gpio_write(TX_OUTPUT_SEL_PIN, !SX127X_PARAM_PASELECT);
-#endif
-        spi_init(sx127x.params.spi);
-        netdev_t *netdev = (netdev_t *)&sx127x;
-        if (netdev->driver->init(netdev) < 0) {
-            puts("Failed to reinitialize SX127x device, exiting");
-            return -1;
-        }
-        sx127x_power = 1;
-    } else if(strstr(argv[1], "off") != NULL) {
-        if (!sx127x_power) {
-            puts("Radio already off");
-            return -1;
-        }
-        sx127x_set_sleep(&sx127x);
-        spi_release(sx127x.params.spi);
-        spi_deinit_pins(sx127x.params.spi);
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-        gpio_clear(TCXO_PWR_PIN);
-        gpio_clear(TX_OUTPUT_SEL_PIN);
-#endif
-        sx127x_power = 0;
+int lora_setup_cmd(int argc, char **argv) {
+  if (argc < 4) {
+    puts(
+        "usage: setup "
+        "<bandwidth (125, 250, 500)> "
+        "<spreading factor (7..12)> "
+        "<code rate (5..8)>");
+    return -1;
+  }
+
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
+
+  /* Check bandwidth value */
+  int bw = atoi(argv[1]);
+  uint8_t lora_bw;
+  switch (bw) {
+    case 125:
+      puts("setup: setting 125KHz bandwidth");
+      lora_bw = LORA_BW_125_KHZ;
+      break;
+
+    case 250:
+      puts("setup: setting 250KHz bandwidth");
+      lora_bw = LORA_BW_250_KHZ;
+      break;
+
+    case 500:
+      puts("setup: setting 500KHz bandwidth");
+      lora_bw = LORA_BW_500_KHZ;
+      break;
+
+    default:
+      puts(
+          "[Error] setup: invalid bandwidth value given, "
+          "only 125, 250 or 500 allowed.");
+      return -1;
+  }
+
+  /* Check spreading factor value */
+  uint8_t lora_sf = atoi(argv[2]);
+  if (lora_sf < 7 || lora_sf > 12) {
+    puts("[Error] setup: invalid spreading factor value given");
+    return -1;
+  }
+
+  /* Check coding rate value */
+  int cr = atoi(argv[3]);
+  if (cr < 5 || cr > 8) {
+    puts("[Error ]setup: invalid coding rate value given");
+    return -1;
+  }
+  uint8_t lora_cr = (uint8_t)(cr - 4);
+
+  /* Configure radio device */
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  netdev->driver->set(netdev, NETOPT_BANDWIDTH, &lora_bw, sizeof(lora_bw));
+  netdev->driver->set(netdev, NETOPT_SPREADING_FACTOR, &lora_sf,
+                      sizeof(lora_sf));
+  netdev->driver->set(netdev, NETOPT_CODING_RATE, &lora_cr, sizeof(lora_cr));
+
+  puts("[Info] setup: configuration set with success");
+
+  return 0;
+}
+
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+int boost_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: boost <get|set>");
+    return -1;
+  }
+
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
+
+  if (strstr(argv[1], "get") != NULL) {
+    bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
+    printf("Boost mode: %s\n", boost ? "set" : "cleared");
+    return 0;
+  }
+
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: boost set <on|off>");
+      return -1;
+    }
+    bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
+    if (strstr(argv[2], "on") != NULL) {
+      if (!boost) {
+        sx127x.params.paselect = SX127X_PA_BOOST;
+        gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+        boost = !boost;
+      }
     } else {
-        puts("usage: radio on|off");
-        return -1;
+      if (boost) {
+        sx127x.params.paselect = SX127X_PA_RFO;
+        gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
+        boost = !boost;
+      }
     }
-    return 0;
-}
+    printf("Boost mode %s\n", boost ? "set" : "cleared");
+  } else {
+    puts("usage: boost <get|set>");
+    return -1;
+  }
 
-int lora_setup_cmd(int argc, char **argv)
-{
-
-    if (argc < 4) {
-        puts("usage: setup "
-             "<bandwidth (125, 250, 500)> "
-             "<spreading factor (7..12)> "
-             "<code rate (5..8)>");
-        return -1;
-    }
-
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
-
-    /* Check bandwidth value */
-    int bw = atoi(argv[1]);
-    uint8_t lora_bw;
-    switch (bw) {
-        case 125:
-            puts("setup: setting 125KHz bandwidth");
-            lora_bw = LORA_BW_125_KHZ;
-            break;
-
-        case 250:
-            puts("setup: setting 250KHz bandwidth");
-            lora_bw = LORA_BW_250_KHZ;
-            break;
-
-        case 500:
-            puts("setup: setting 500KHz bandwidth");
-            lora_bw = LORA_BW_500_KHZ;
-            break;
-
-        default:
-            puts("[Error] setup: invalid bandwidth value given, "
-                 "only 125, 250 or 500 allowed.");
-            return -1;
-    }
-
-    /* Check spreading factor value */
-    uint8_t lora_sf = atoi(argv[2]);
-    if (lora_sf < 7 || lora_sf > 12) {
-        puts("[Error] setup: invalid spreading factor value given");
-        return -1;
-    }
-
-    /* Check coding rate value */
-    int cr = atoi(argv[3]);
-    if (cr < 5 || cr > 8) {
-        puts("[Error ]setup: invalid coding rate value given");
-        return -1;
-    }
-    uint8_t lora_cr = (uint8_t)(cr - 4);
-
-    /* Configure radio device */
-    netdev_t *netdev = (netdev_t *)&sx127x;
-    netdev->driver->set(netdev, NETOPT_BANDWIDTH,
-                        &lora_bw, sizeof(lora_bw));
-    netdev->driver->set(netdev, NETOPT_SPREADING_FACTOR,
-                        &lora_sf, sizeof(lora_sf));
-    netdev->driver->set(netdev, NETOPT_CODING_RATE,
-                        &lora_cr, sizeof(lora_cr));
-
-    puts("[Info] setup: configuration set with success");
-
-    return 0;
-}
-
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-int boost_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: boost <get|set>");
-        return -1;
-    }
-
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
-
-    if (strstr(argv[1], "get") != NULL) {
-        bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
-        printf("Boost mode: %s\n", boost ? "set" : "cleared");
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: boost set <on|off>");
-            return -1;
-        }
-        bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
-        if (strstr(argv[2],"on") != NULL) {
-            if (!boost) {
-                sx127x.params.paselect = SX127X_PA_BOOST;
-                gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
-                boost = !boost;
-            }
-        } else {
-            if (boost) {
-                sx127x.params.paselect = SX127X_PA_RFO;
-                gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
-                boost = !boost;
-            }
-        }
-        printf("Boost mode %s\n", boost ? "set" : "cleared");
-    }
-    else {
-        puts("usage: boost <get|set>");
-        return -1;
-    }
-
-    return 0;
+  return 0;
 }
 #endif
 
-int txpower_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: txpower <get|set>");
-        return -1;
-    }
+int txpower_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: txpower <get|set>");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        uint8_t txpower = sx127x_get_tx_power(&sx127x);
-        printf("Transmission power: %d\n", txpower);
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: txpower set <power>");
-            return -1;
-        }
-        uint8_t txpower = atoi(argv[2]);
-        sx127x_set_tx_power(&sx127x, txpower);
-        txpower = sx127x_get_tx_power(&sx127x);
-        printf("Transmission power set to: %d\n", txpower);
-    }
-    else {
-        puts("usage: txpower <get|set>");
-        return -1;
-    }
-
+  if (strstr(argv[1], "get") != NULL) {
+    uint8_t txpower = sx127x_get_tx_power(&sx127x);
+    printf("Transmission power: %d\n", txpower);
     return 0;
+  }
+
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: txpower set <power>");
+      return -1;
+    }
+    uint8_t txpower = atoi(argv[2]);
+    sx127x_set_tx_power(&sx127x, txpower);
+    txpower = sx127x_get_tx_power(&sx127x);
+    printf("Transmission power set to: %d\n", txpower);
+  } else {
+    puts("usage: txpower <get|set>");
+    return -1;
+  }
+
+  return 0;
 }
 
-int send_cmd(int argc, char **argv)
-{
-    uint16_t dst = 0xffff; // broadcast by default
+int send_cmd(int argc, char **argv) {
+  uint16_t dst = 0xffff;  // broadcast by default
 
-    if (argc <= 1) {
-        puts("usage: send <payload> [<dst>]");
-        return -1;
-    }
+  if (argc <= 1) {
+    puts("usage: send <payload> [<dst>]");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    if (argc == 3) {
-        dst = atoi(argv[2]) & 0xffff;
-    }
+  if (argc == 3) {
+    dst = atoi(argv[2]) & 0xffff;
+  }
 
-    printf("sending \"%s\" payload (%u bytes) to dst %04x\n",
-           argv[1], (unsigned)strlen(argv[1]) + 1, dst);
+  printf("sending \"%s\" payload (%u bytes) to dst %04x\n", argv[1],
+         (unsigned)strlen(argv[1]) + 1, dst);
 
-    iolist_t payload = {
-        .iol_base = argv[1],
-        .iol_len = (strlen(argv[1]) + 1)
-    };
+  iolist_t payload = {.iol_base = argv[1], .iol_len = (strlen(argv[1]) + 1)};
 
-    char header[10] = {
-         0xe0, 0x00,
-         emb_counter & 0xff, (emb_counter >> 8) & 0xff,
-         emb_network & 0xff, (emb_network >> 8) & 0xff,
-         dst & 0xff,         (dst >> 8) & 0xff,
-         emb_address & 0xff, (emb_address >> 8) & 0xff,
-    };
+  char header[10] = {
+      0xe0,
+      0x00,
+      emb_counter & 0xff,
+      (emb_counter >> 8) & 0xff,
+      emb_network & 0xff,
+      (emb_network >> 8) & 0xff,
+      dst & 0xff,
+      (dst >> 8) & 0xff,
+      emb_address & 0xff,
+      (emb_address >> 8) & 0xff,
+  };
 
-    iolist_t iolist = {
-        .iol_next = &payload,
-        .iol_base = header,
-        .iol_len = (size_t)10
-    };
-   	gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to PA_BOOST
-	gpio_clear(GPIO_PIN(PA, 13));
+  iolist_t iolist = {
+      .iol_next = &payload, .iol_base = header, .iol_len = (size_t)10};
+  gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to PA_BOOST
+  gpio_clear(GPIO_PIN(PA, 13));
 
-    netdev_t *netdev = (netdev_t *)&sx127x;
-    if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
-        puts("Cannot send: radio is still transmitting");
-    } else {
-        emb_counter++;
-    }
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
+    puts("Cannot send: radio is still transmitting");
+  } else {
+    emb_counter++;
+  }
 
-    return 0;
+  return 0;
 }
 
-int listen_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int listen_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    netdev_t *netdev = (netdev_t *)&sx127x;
-    /* Switch to continuous listen mode */
-    const netopt_enable_t single = false;
-    netdev->driver->set(netdev, NETOPT_SINGLE_RECEIVE, &single, sizeof(single));
-    
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  /* Switch to continuous listen mode */
+  const netopt_enable_t single = false;
+  netdev->driver->set(netdev, NETOPT_SINGLE_RECEIVE, &single, sizeof(single));
+
 #ifdef BOARD_LORA3A_SENSOR1
-    const uint32_t timeout = 1000;
+  const uint32_t timeout = 1000;
 #endif
 #if defined(BOARD_LORA3A_H10) || defined(BOARD_SAMR34_XPRO)
-    const uint32_t timeout = 10000;
-   	gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to RFInput
-	gpio_set(GPIO_PIN(PA, 13));
+  const uint32_t timeout = 10000;
+  gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to RFInput
+  gpio_set(GPIO_PIN(PA, 13));
 
 #endif
 #ifdef BOARD_LORA3A_DONGLE
-    const uint32_t timeout = 10000;
+  const uint32_t timeout = 10000;
 #endif
-    netdev->driver->set(netdev, NETOPT_RX_TIMEOUT, &timeout, sizeof(timeout));
+  netdev->driver->set(netdev, NETOPT_RX_TIMEOUT, &timeout, sizeof(timeout));
 
-    /* Switch to RX state */
-    netopt_state_t state = NETOPT_STATE_RX;
-    netdev->driver->set(netdev, NETOPT_STATE, &state, sizeof(state));
+  /* Switch to RX state */
+  netopt_state_t state = NETOPT_STATE_RX;
+  netdev->driver->set(netdev, NETOPT_STATE, &state, sizeof(state));
 
-    puts("Listen mode set");
+  puts("Listen mode set");
 
-    return 0;
+  return 0;
 }
 
-int channel_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: channel <get|set>");
-        return -1;
-    }
+int channel_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: channel <get|set>");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    netdev_t *netdev = (netdev_t *)&sx127x;
-    uint32_t chan;
-    if (strstr(argv[1], "get") != NULL) {
-        netdev->driver->get(netdev, NETOPT_CHANNEL_FREQUENCY, &chan,
-                            sizeof(chan));
-        printf("Channel: %i\n", (int)chan);
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: channel set <channel>");
-            return -1;
-        }
-        chan = atoi(argv[2]);
-        netdev->driver->set(netdev, NETOPT_CHANNEL_FREQUENCY, &chan,
-                            sizeof(chan));
-        printf("New channel set\n");
-    }
-    else {
-        puts("usage: channel <get|set>");
-        return -1;
-    }
-
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  uint32_t chan;
+  if (strstr(argv[1], "get") != NULL) {
+    netdev->driver->get(netdev, NETOPT_CHANNEL_FREQUENCY, &chan, sizeof(chan));
+    printf("Channel: %i\n", (int)chan);
     return 0;
+  }
+
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: channel set <channel>");
+      return -1;
+    }
+    chan = atoi(argv[2]);
+    netdev->driver->set(netdev, NETOPT_CHANNEL_FREQUENCY, &chan, sizeof(chan));
+    printf("New channel set\n");
+  } else {
+    puts("usage: channel <get|set>");
+    return -1;
+  }
+
+  return 0;
 }
 
-int network_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: network <get|set>");
-        return -1;
-    }
+int network_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: network <get|set>");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Network: %u\n", emb_network);
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: network set <networkid>");
-            return -1;
-        }
-        emb_network = atoi(argv[2]);
-        printf("New network set\n");
-    }
-    else {
-        puts("usage: network <get|set>");
-        return -1;
-    }
-
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Network: %u\n", emb_network);
     return 0;
+  }
+
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: network set <networkid>");
+      return -1;
+    }
+    emb_network = atoi(argv[2]);
+    printf("New network set\n");
+  } else {
+    puts("usage: network <get|set>");
+    return -1;
+  }
+
+  return 0;
 }
 
-int address_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: address <get|set>");
-        return -1;
-    }
+int address_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: address <get|set>");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Network: %u\n", emb_address);
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: address set <addressid>");
-            return -1;
-        }
-        emb_address = atoi(argv[2]);
-        printf("New address set\n");
-    }
-    else {
-        puts("usage: address <get|set>");
-        return -1;
-    }
-
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Network: %u\n", emb_address);
     return 0;
+  }
+
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: address set <addressid>");
+      return -1;
+    }
+    emb_address = atoi(argv[2]);
+    printf("New address set\n");
+  } else {
+    puts("usage: address <get|set>");
+    return -1;
+  }
+
+  return 0;
 }
 
-int sniff_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: sniff <get|set>");
-        return -1;
-    }
+int sniff_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: sniff <get|set>");
+    return -1;
+  }
 
-    if (!sx127x_power) {
-        puts("Radio is off");
-        return -1;
-    }
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Sniff mode: %s\n", emb_sniff ? "set" : "cleared");
-        return 0;
-    }
-
-    if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: sniff set <on|off>");
-            return -1;
-        }
-        emb_sniff = strstr(argv[2],"on") != NULL;
-        printf("Sniff mode %s\n", emb_sniff ? "set" : "cleared");
-    }
-    else {
-        puts("usage: sniff <get|set>");
-        return -1;
-    }
-
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Sniff mode: %s\n", emb_sniff ? "set" : "cleared");
     return 0;
-}
+  }
 
+  if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: sniff set <on|off>");
+      return -1;
+    }
+    emb_sniff = strstr(argv[2], "on") != NULL;
+    printf("Sniff mode %s\n", emb_sniff ? "set" : "cleared");
+  } else {
+    puts("usage: sniff <get|set>");
+    return -1;
+  }
+
+  return 0;
+}
 
 #endif
 
 #ifdef CPU_SAML21
-uint8_t saml21_corefreq(void)
-{
-    // NB: it's not general, but works with RIOT initialization
-    uint8_t corefreq;
-    uint8_t osc16m_freqs[] = { 4, 8, 12, 16 };
-    uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
-    uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
-    switch (src) {
-        case GCLK_GENCTRL_SRC_DFLL48M_Val:
-            corefreq = 48;
-            break;
+uint8_t saml21_corefreq(void) {
+  // NB: it's not general, but works with RIOT initialization
+  uint8_t corefreq;
+  uint8_t osc16m_freqs[] = {4, 8, 12, 16};
+  uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
+  uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
+  switch (src) {
+    case GCLK_GENCTRL_SRC_DFLL48M_Val:
+      corefreq = 48;
+      break;
+    default:
+      corefreq = osc16m_freqs[fsel];
+      break;
+  }
+  return corefreq;
+}
+int corefreq_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: corefreq <get|set>");
+    return -1;
+  }
+
+  uint8_t corefreq = saml21_corefreq();
+  uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
+  uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
+
+  if (strstr(argv[1], "get") != NULL) {
+    printf("CPU frequency: %dMHz\n", corefreq);
+    return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: corefreq set <freq>");
+      return -1;
+    }
+    uint8_t tgt;
+    uint8_t fsel_new;
+    uint8_t corefreq_new = atoi(argv[2]) & 0xFF;
+
+    if (corefreq_new != corefreq) {
+      switch (corefreq_new) {
+#if USE_DFLL
+        case 48:
+          tgt = GCLK_GENCTRL_SRC_DFLL48M_Val;
+          break;
+#endif
+        case 16:
+          tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+          fsel_new = OSCCTRL_OSC16MCTRL_FSEL_16_Val;
+          break;
+        case 12:
+          tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+          fsel_new = OSCCTRL_OSC16MCTRL_FSEL_12_Val;
+          break;
+        case 8:
+          tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+          fsel_new = OSCCTRL_OSC16MCTRL_FSEL_8_Val;
+          break;
+        case 4:
+          tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
+          fsel_new = OSCCTRL_OSC16MCTRL_FSEL_4_Val;
+          break;
         default:
-            corefreq = osc16m_freqs[fsel];
-            break;
-    }
-    return corefreq;
-}
-int corefreq_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: corefreq <get|set>");
-        return -1;
-    }
-
-    uint8_t corefreq = saml21_corefreq();
-    uint8_t src = GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC;
-    uint8_t fsel = OSCCTRL->OSC16MCTRL.bit.FSEL;
-
-    if (strstr(argv[1], "get") != NULL) {
-        printf("CPU frequency: %dMHz\n", corefreq);
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: corefreq set <freq>");
-            return -1;
-        }
-        uint8_t tgt;
-        uint8_t fsel_new;
-        uint8_t corefreq_new = atoi(argv[2]) & 0xFF;
-
-        if (corefreq_new != corefreq) {
-            switch (corefreq_new) {
 #if USE_DFLL
-                case 48:
-                    tgt = GCLK_GENCTRL_SRC_DFLL48M_Val;
-                    break;
-#endif
-                case 16:
-                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
-                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_16_Val;
-                    break;
-                case 12:
-                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
-                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_12_Val;
-                    break;
-                case 8:
-                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
-                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_8_Val;
-                    break;
-                case 4:
-                    tgt = GCLK_GENCTRL_SRC_OSC16M_Val;
-                    fsel_new = OSCCTRL_OSC16MCTRL_FSEL_4_Val;
-                    break;
-                default:
-#if USE_DFLL
-                    puts("Available frequencies: 4, 8, 12, 16, 48 only.");
+          puts("Available frequencies: 4, 8, 12, 16, 48 only.");
 #else
-                    puts("Available frequencies: 4, 8, 12, 16 only.");
+          puts("Available frequencies: 4, 8, 12, 16 only.");
 #endif
-                    return -1;
-                    break;
-            }
-            // change main clock frequency
-            if (tgt != src) {
-                GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC = tgt;
-                while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_MAIN)) {}
-            }
-            if (fsel_new != fsel) {
-                OSCCTRL->OSC16MCTRL.bit.FSEL = fsel_new;
-            }
-            for (unsigned i = 0; i < 8; i++) {
-                if (corefreq_new * 1000000 / (1 << i) <= 6000000) {
-                    MCLK->BUPDIV.reg = (1 << i);
-                    while (!MCLK->INTFLAG.bit.CKRDY) {}
-                    break;
-                }
-            }
-            // adjust clock generator for timers
-            uint32_t tdiv = GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV;
-            uint32_t tdiv_new = corefreq_new / ((corefreq_new == 4) || (corefreq_new == 12) ? 4 : 8);
-            GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = tdiv_new;
-            while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_TIMER)) {}
-            int prescalers[] = { 1, 2, 4, 8, 16, 64, 256, 1024 };
-            size_t n_prescalers = sizeof(prescalers)/sizeof(int);
-            Tc *timers[] = TC_INSTS;
-            for (size_t i=0; i<TC_INST_NUM; i++) {
-                if (timers[i]->COUNT8.CTRLA.reg) {
-                    timers[i]->COUNT8.CTRLA.bit.ENABLE = 0;
-                    uint32_t timer = corefreq * 1000000 / tdiv / prescalers[timers[i]->COUNT8.CTRLA.bit.PRESCALER];
-                    for (size_t j = 0; j < n_prescalers; j++) {
-                        uint32_t timer_new = corefreq_new * 1000000 / tdiv_new / prescalers[j];
-                        if (timer_new == timer) {
-                            timers[i]->COUNT8.CTRLA.bit.PRESCALER = j;
-                            break;
-                        }
-                    }
-                    timers[i]->COUNT8.CTRLA.bit.ENABLE = 1;
-                }
-            }
-            // adjust console baud rate
-            SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
-            assert(console->CTRLA.bit.SAMPR == 1);
-            console->CTRLA.bit.ENABLE = 0;
-            uint32_t baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
-            uint32_t baud_new = corefreq_new * baud / corefreq;
-            console->BAUD.FRAC.FP = (baud_new % 8);
-            console->BAUD.FRAC.BAUD = (baud_new / 8);
-            while (console->SYNCBUSY.reg) {}
-            console->CTRLA.bit.ENABLE = 1;
-
-            // TODO: fix other peripherals too
-            // SPI, I2CM
-
-            printf("CPU frequency now: %dMHz\n", corefreq_new);
+          return -1;
+          break;
+      }
+      // change main clock frequency
+      if (tgt != src) {
+        GCLK->GENCTRL[SAM0_GCLK_MAIN].bit.SRC = tgt;
+        while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_MAIN)) {
         }
-    } else {
-        puts("usage: corefreq <get|set>");
-        return -1;
+      }
+      if (fsel_new != fsel) {
+        OSCCTRL->OSC16MCTRL.bit.FSEL = fsel_new;
+      }
+      for (unsigned i = 0; i < 8; i++) {
+        if (corefreq_new * 1000000 / (1 << i) <= 6000000) {
+          MCLK->BUPDIV.reg = (1 << i);
+          while (!MCLK->INTFLAG.bit.CKRDY) {
+          }
+          break;
+        }
+      }
+      // adjust clock generator for timers
+      uint32_t tdiv = GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV;
+      uint32_t tdiv_new =
+          corefreq_new / ((corefreq_new == 4) || (corefreq_new == 12) ? 4 : 8);
+      GCLK->GENCTRL[SAM0_GCLK_TIMER].bit.DIV = tdiv_new;
+      while (GCLK->SYNCBUSY.reg & GCLK_SYNCBUSY_GENCTRL(SAM0_GCLK_TIMER)) {
+      }
+      int prescalers[] = {1, 2, 4, 8, 16, 64, 256, 1024};
+      size_t n_prescalers = sizeof(prescalers) / sizeof(int);
+      Tc *timers[] = TC_INSTS;
+      for (size_t i = 0; i < TC_INST_NUM; i++) {
+        if (timers[i]->COUNT8.CTRLA.reg) {
+          timers[i]->COUNT8.CTRLA.bit.ENABLE = 0;
+          uint32_t timer = corefreq * 1000000 / tdiv /
+                           prescalers[timers[i]->COUNT8.CTRLA.bit.PRESCALER];
+          for (size_t j = 0; j < n_prescalers; j++) {
+            uint32_t timer_new =
+                corefreq_new * 1000000 / tdiv_new / prescalers[j];
+            if (timer_new == timer) {
+              timers[i]->COUNT8.CTRLA.bit.PRESCALER = j;
+              break;
+            }
+          }
+          timers[i]->COUNT8.CTRLA.bit.ENABLE = 1;
+        }
+      }
+      // adjust console baud rate
+      SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
+      assert(console->CTRLA.bit.SAMPR == 1);
+      console->CTRLA.bit.ENABLE = 0;
+      uint32_t baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
+      uint32_t baud_new = corefreq_new * baud / corefreq;
+      console->BAUD.FRAC.FP = (baud_new % 8);
+      console->BAUD.FRAC.BAUD = (baud_new / 8);
+      while (console->SYNCBUSY.reg) {
+      }
+      console->CTRLA.bit.ENABLE = 1;
+
+      // TODO: fix other peripherals too
+      // SPI, I2CM
+
+      printf("CPU frequency now: %dMHz\n", corefreq_new);
     }
-    return 0;
+  } else {
+    puts("usage: corefreq <get|set>");
+    return -1;
+  }
+  return 0;
 }
 
-int dividers_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: dividers <get|set>");
-        return -1;
-    }
+int dividers_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: dividers <get|set>");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Dividers: CPU=core/%d LP=core/%d, BUP=core/%d\n", MCLK->CPUDIV.reg, MCLK->LPDIV.reg, MCLK->BUPDIV.reg);
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc != 5) {
-            puts("usage: dividers set <cpudiv> <lpdiv> <bupdiv>");
-            return -1;
-        }
-        uint8_t cpudiv = atoi(argv[2]) & 0xFF;
-        uint8_t lpdiv  = atoi(argv[3]) & 0xFF;
-        uint8_t bupdiv = atoi(argv[4]) & 0xFF;
-        // TODO: dividers must be powers of 2
-        if ((1 <= cpudiv) && (cpudiv <= lpdiv) && (lpdiv <= bupdiv)) {
-            MCLK->BUPDIV.reg = bupdiv;
-            MCLK->LPDIV.reg  = lpdiv;
-            MCLK->CPUDIV.reg = cpudiv;
-            printf("Dividers now: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv, lpdiv, bupdiv);
-        } else {
-            printf("Dividers required: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv, lpdiv, bupdiv);
-            puts("Dividers must satisfy 1 <= CPUDIV <= LPDIV <= BUPDIV");
-            return -1;
-        }
-    } else {
-        puts("usage: dividers <get|set>");
-        return -1;
-    }
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Dividers: CPU=core/%d LP=core/%d, BUP=core/%d\n", MCLK->CPUDIV.reg,
+           MCLK->LPDIV.reg, MCLK->BUPDIV.reg);
     return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc != 5) {
+      puts("usage: dividers set <cpudiv> <lpdiv> <bupdiv>");
+      return -1;
+    }
+    uint8_t cpudiv = atoi(argv[2]) & 0xFF;
+    uint8_t lpdiv = atoi(argv[3]) & 0xFF;
+    uint8_t bupdiv = atoi(argv[4]) & 0xFF;
+    // TODO: dividers must be powers of 2
+    if ((1 <= cpudiv) && (cpudiv <= lpdiv) && (lpdiv <= bupdiv)) {
+      MCLK->BUPDIV.reg = bupdiv;
+      MCLK->LPDIV.reg = lpdiv;
+      MCLK->CPUDIV.reg = cpudiv;
+      printf("Dividers now: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv,
+             lpdiv, bupdiv);
+    } else {
+      printf("Dividers required: CPU=core/%d LP=core/%d, BUP=core/%d\n", cpudiv,
+             lpdiv, bupdiv);
+      puts("Dividers must satisfy 1 <= CPUDIV <= LPDIV <= BUPDIV");
+      return -1;
+    }
+  } else {
+    puts("usage: dividers <get|set>");
+    return -1;
+  }
+  return 0;
 }
 
-int perf_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: perf <get|set>");
-        return -1;
-    }
+int perf_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: perf <get|set>");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Performance level: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: perf set <level> [<lock>]");
-            return -1;
-        }
-        uint8_t level = atoi(argv[2]) & 0x03;
-        uint8_t lock = ((argc >=3) && (strstr(argv[3], "1") != NULL)) ? 1 : 0;
-        switch (level) {
-            case 0:
-                if (saml21_corefreq() > 12) {
-                    puts("Performance level 0 can't be used with a core frequency above 12MHz");
-                   return -1;
-                }
-                if (PM->PLCFG.bit.PLSEL != level) {
-                    PM->PLCFG.bit.PLSEL = level;
-                    while (!PM->INTFLAG.bit.PLRDY) {}
-                }
-                if (PM->PLCFG.bit.PLDIS != lock) {
-                    PM->PLCFG.bit.PLDIS = lock;
-                    while (!PM->INTFLAG.bit.PLRDY) {}
-                }
-                break;
-            case 2:
-                if (PM->PLCFG.bit.PLSEL != level) {
-                    PM->PLCFG.bit.PLSEL = level;
-                    while (!PM->INTFLAG.bit.PLRDY) {}
-                }
-                if (lock) {
-                    puts("Warning: locking is only available if already at performance level 0");
-                }
-                break;
-            default:
-                puts("Available performance levels: 0, 2");
-                return -1;
-                break;
-        }
-        printf("Performance level now: %d%s\n", PM->PLCFG.bit.PLSEL, PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
-    } else {
-        puts("usage: perf <get|set>");
-        return -1;
-    }
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Performance level: %d%s\n", PM->PLCFG.bit.PLSEL,
+           PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
     return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: perf set <level> [<lock>]");
+      return -1;
+    }
+    uint8_t level = atoi(argv[2]) & 0x03;
+    uint8_t lock = ((argc >= 3) && (strstr(argv[3], "1") != NULL)) ? 1 : 0;
+    switch (level) {
+      case 0:
+        if (saml21_corefreq() > 12) {
+          puts(
+              "Performance level 0 can't be used with a core frequency above "
+              "12MHz");
+          return -1;
+        }
+        if (PM->PLCFG.bit.PLSEL != level) {
+          PM->PLCFG.bit.PLSEL = level;
+          while (!PM->INTFLAG.bit.PLRDY) {
+          }
+        }
+        if (PM->PLCFG.bit.PLDIS != lock) {
+          PM->PLCFG.bit.PLDIS = lock;
+          while (!PM->INTFLAG.bit.PLRDY) {
+          }
+        }
+        break;
+      case 2:
+        if (PM->PLCFG.bit.PLSEL != level) {
+          PM->PLCFG.bit.PLSEL = level;
+          while (!PM->INTFLAG.bit.PLRDY) {
+          }
+        }
+        if (lock) {
+          puts(
+              "Warning: locking is only available if already at performance "
+              "level 0");
+        }
+        break;
+      default:
+        puts("Available performance levels: 0, 2");
+        return -1;
+        break;
+    }
+    printf("Performance level now: %d%s\n", PM->PLCFG.bit.PLSEL,
+           PM->PLCFG.bit.PLDIS ? " LOCKED" : "");
+  } else {
+    puts("usage: perf <get|set>");
+    return -1;
+  }
+  return 0;
 }
 #if 0
 int vref_cmd(int argc, char **argv)
@@ -788,102 +775,103 @@ int vref_cmd(int argc, char **argv)
 }
 #endif
 
-int vreg_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: vreg <get|set>");
-        return -1;
-    }
+int vreg_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: vreg <get|set>");
+    return -1;
+  }
 
-    if (strstr(argv[1], "get") != NULL) {
-        printf("Voltage regulator: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: vref set <regulator>");
-            return -1;
-        }
-        uint8_t vreg;
-        if (strstr(argv[2], "ldo") != NULL) {
-            vreg = SAM0_VREG_LDO;
-        } else if (strstr(argv[2], "buck") != NULL) {
-            if (saml21_corefreq() == 48) {
-                puts("Buck regulator can't be used with 48MHz core clock");
-                return -1;
-            }
-            vreg = SAM0_VREG_BUCK;
-        } else {
-            puts("Available regulators: ldo, buck");
-            return -1;
-        }
-        SUPC->VREG.bit.SEL = vreg;
-        while (!SUPC->STATUS.bit.VREGRDY) {}
-        printf("Voltage regulator now: %s\n", SUPC->VREG.bit.SEL == SAM0_VREG_LDO? "LDO" : "BUCK");
-    } else {
-        puts("usage: vreg <get|set>");
-        return -1;
-    }
+  if (strstr(argv[1], "get") != NULL) {
+    printf("Voltage regulator: %s\n",
+           SUPC->VREG.bit.SEL == SAM0_VREG_LDO ? "LDO" : "BUCK");
     return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: vref set <regulator>");
+      return -1;
+    }
+    uint8_t vreg;
+    if (strstr(argv[2], "ldo") != NULL) {
+      vreg = SAM0_VREG_LDO;
+    } else if (strstr(argv[2], "buck") != NULL) {
+      if (saml21_corefreq() == 48) {
+        puts("Buck regulator can't be used with 48MHz core clock");
+        return -1;
+      }
+      vreg = SAM0_VREG_BUCK;
+    } else {
+      puts("Available regulators: ldo, buck");
+      return -1;
+    }
+    SUPC->VREG.bit.SEL = vreg;
+    while (!SUPC->STATUS.bit.VREGRDY) {
+    }
+    printf("Voltage regulator now: %s\n",
+           SUPC->VREG.bit.SEL == SAM0_VREG_LDO ? "LDO" : "BUCK");
+  } else {
+    puts("usage: vreg <get|set>");
+    return -1;
+  }
+  return 0;
 }
 
-int baud_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: baud get|set");
-        return -1;
-    }
+int baud_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: baud get|set");
+    return -1;
+  }
 
-    SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
-    uint32_t baud, rate;
-    if (strstr(argv[1], "get") != NULL) {
-        assert(console->CTRLA.bit.SAMPR == 1);
-        baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
-        rate = saml21_corefreq() * 1000000 * 8 / baud / 16;
-        printf("Console baud rate: %lu\n", rate);
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3) {
-            puts("usage: baud set <rate>");
-            return -1;
-        }
-        rate = atoi(argv[2]);
-        if ((rate > 0)) {
-            assert(console->CTRLA.bit.SAMPR == 1);
-            console->CTRLA.bit.ENABLE = 0;
-            baud = saml21_corefreq() * 1000000 * 8 / rate / 16;
-            console->BAUD.FRAC.FP = (baud % 8);
-            console->BAUD.FRAC.BAUD = (baud / 8);
-            while (console->SYNCBUSY.reg) {}
-            console->CTRLA.bit.ENABLE = 1;
-            printf("Console baud rate now: %lu\n", rate);
-        } else {
-            printf("Invalid baud rate %s\n", argv[2]);
-            return -1;
-        }
-    } else {
-        puts("usage: baud <get|set>");
-        return -1;
-    }
+  SercomUsart *console = uart_config[STDIO_UART_DEV].dev;
+  uint32_t baud, rate;
+  if (strstr(argv[1], "get") != NULL) {
+    assert(console->CTRLA.bit.SAMPR == 1);
+    baud = console->BAUD.FRAC.BAUD * 8 + console->BAUD.FRAC.FP;
+    rate = saml21_corefreq() * 1000000 * 8 / baud / 16;
+    printf("Console baud rate: %lu\n", rate);
     return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3) {
+      puts("usage: baud set <rate>");
+      return -1;
+    }
+    rate = atoi(argv[2]);
+    if ((rate > 0)) {
+      assert(console->CTRLA.bit.SAMPR == 1);
+      console->CTRLA.bit.ENABLE = 0;
+      baud = saml21_corefreq() * 1000000 * 8 / rate / 16;
+      console->BAUD.FRAC.FP = (baud % 8);
+      console->BAUD.FRAC.BAUD = (baud / 8);
+      while (console->SYNCBUSY.reg) {
+      }
+      console->CTRLA.bit.ENABLE = 1;
+      printf("Console baud rate now: %lu\n", rate);
+    } else {
+      printf("Invalid baud rate %s\n", argv[2]);
+      return -1;
+    }
+  } else {
+    puts("usage: baud <get|set>");
+    return -1;
+  }
+  return 0;
 }
 
-void poweroff_devices(void)
-{
- //   size_t i;
-    gpio_set(TCXO_PWR_PIN);
+void poweroff_devices(void) {
+  //   size_t i;
+  gpio_set(TCXO_PWR_PIN);
 
-    // turn radio off
-    sx127x_t sx127x;
-    sx127x.params = sx127x_params[0];
-    spi_init(sx127x.params.spi);
-    sx127x_init(&sx127x);
- //   sx127x_reset(&sx127x);
-    sx127x_set_sleep(&sx127x);
+  // turn radio off
+  sx127x_t sx127x;
+  sx127x.params = sx127x_params[0];
+  spi_init(sx127x.params.spi);
+  sx127x_init(&sx127x);
+  //   sx127x_reset(&sx127x);
+  sx127x_set_sleep(&sx127x);
 #ifdef TCXO_PWR_PIN
-    gpio_clear(TCXO_PWR_PIN);
+  gpio_clear(TCXO_PWR_PIN);
 #endif
 #ifdef TX_OUTPUT_SEL_PIN
-    gpio_clear(TX_OUTPUT_SEL_PIN);
+  gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
 
 #if 0
@@ -917,61 +905,58 @@ void poweroff_devices(void)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
-#endif    
+#endif
 }
 
+int sleep_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: sleep [<mode> <seconds>|pin <num>]");
+    return -1;
+  }
 
-
-
-int sleep_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: sleep [<mode> <seconds>|pin <num>]");
-        return -1;
-    }
-
-uint32_t seconds=10;
+  uint32_t seconds = 10;
 
 #ifdef POWER_PROFILING
-    printf ("POWER_PROFILING=1\n");
-    gpio_init(LED0_PIN, GPIO_OUT);
-    gpio_clear(LED0_PIN);
-    ztimer_sleep(ZTIMER_MSEC, 1000);
-    gpio_set(LED0_PIN);
+  printf("POWER_PROFILING=1\n");
+  gpio_init(LED0_PIN, GPIO_OUT);
+  gpio_clear(LED0_PIN);
+  ztimer_sleep(ZTIMER_MSEC, 1000);
+  gpio_set(LED0_PIN);
 #endif
-    uint8_t sleepmode = 0;
-    uint8_t extwakeOLD = 255;
-    if (strstr(argv[1], "pin") != NULL) {
-        if (argc < 3) {
-            puts("usage: sleep [<seconds>|pin <num>]");
-            return -1;
-        }
-        extwakeOLD = atoi(argv[2]) & 0x0F;
-        if (extwakeOLD > 7) {
-            puts("Available pins: 0 - 7 only.");
-            return -1;
-        }
-        printf("Enabling PA%02d as external wakeup pin.\n", extwakeOLD);
-        gpio_init(GPIO_PIN(PA, extwakeOLD), GPIO_IN_PU);
-        // wait for pin to settle
-        while (!(PORT->Group[0].IN.reg & (1 << extwakeOLD))) {}
-        RSTC->WKEN.reg = 1 << extwakeOLD;
-        RSTC->WKPOL.reg &= ~(1 << extwakeOLD);
-    } else {
-        if (argc < 3) {
-            puts("usage: sleep [<mode> <seconds>|pin <num>]");
-            return -1;
-        }
-        sleepmode = atoi(argv[1]);
-        seconds = atoi(argv[2]);
-        if (sleepmode !=0 && sleepmode !=1 && sleepmode !=2) {
-            puts("Invalid value for sleep mode.");
-            return -1;
-        }
-        if (seconds == 0) {
-            puts("Invalid value for seconds.");
-            return -1;
-        }
+  uint8_t sleepmode = 0;
+  uint8_t extwakeOLD = 255;
+  if (strstr(argv[1], "pin") != NULL) {
+    if (argc < 3) {
+      puts("usage: sleep [<seconds>|pin <num>]");
+      return -1;
+    }
+    extwakeOLD = atoi(argv[2]) & 0x0F;
+    if (extwakeOLD > 7) {
+      puts("Available pins: 0 - 7 only.");
+      return -1;
+    }
+    printf("Enabling PA%02d as external wakeup pin.\n", extwakeOLD);
+    gpio_init(GPIO_PIN(PA, extwakeOLD), GPIO_IN_PU);
+    // wait for pin to settle
+    while (!(PORT->Group[0].IN.reg & (1 << extwakeOLD))) {
+    }
+    RSTC->WKEN.reg = 1 << extwakeOLD;
+    RSTC->WKPOL.reg &= ~(1 << extwakeOLD);
+  } else {
+    if (argc < 3) {
+      puts("usage: sleep [<mode> <seconds>|pin <num>]");
+      return -1;
+    }
+    sleepmode = atoi(argv[1]);
+    seconds = atoi(argv[2]);
+    if (sleepmode != 0 && sleepmode != 1 && sleepmode != 2) {
+      puts("Invalid value for sleep mode.");
+      return -1;
+    }
+    if (seconds == 0) {
+      puts("Invalid value for seconds.");
+      return -1;
+    }
 #if 0  // superseeded by saml21_backup_mode_enter        
         printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
 
@@ -979,133 +964,132 @@ uint32_t seconds=10;
         rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
         // disable EXTINT wakeup
         RSTC->WKEN.reg = 0;
-#endif        
-    }
-	strcpy (myargv0, "radio");
-	strcpy (myargv1, "off");
-	myargv[2] = NULL;
-	lora_radio_cmd (2, (char **)myargv);
+#endif
+  }
+  strcpy(myargv0, "radio");
+  strcpy(myargv1, "off");
+  myargv[2] = NULL;
+  lora_radio_cmd(2, (char **)myargv);
 
-    puts("Now entering backup mode.");
-    
-    // turn off PORT pins
-//   size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
-//    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
-//    for (size_t i=0; i<num; i++) {
-//        for (size_t j=0; j<num1; j++) {
-//            if (extwake == 255 || i != 0 || j != extwake) {
-//                PORT->Group[i].PINCFG[j].reg = 0;
-//            }
-//        }
-//    }
-    // add pullups to console pins
-//    for (size_t i=0; i<UART_NUMOF; i++) {
-//        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
-//        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
-//    }
-//#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-//    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
-//    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
-//#endif
+  puts("Now entering backup mode.");
 
-//    gpio_init(GPIO_PIN(PA, 9), GPIO_OUT);
-//    gpio_clear(GPIO_PIN(PA, 9));
-//    gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);
-//    gpio_clear(GPIO_PIN(PA, 13));
+  // turn off PORT pins
+  //   size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
+  //    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
+  //    for (size_t i=0; i<num; i++) {
+  //        for (size_t j=0; j<num1; j++) {
+  //            if (extwake == 255 || i != 0 || j != extwake) {
+  //                PORT->Group[i].PINCFG[j].reg = 0;
+  //            }
+  //        }
+  //    }
+  // add pullups to console pins
+  //    for (size_t i=0; i<UART_NUMOF; i++) {
+  //        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
+  //        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
+  //    }
+  //#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
+  //    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
+  //    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
+  //#endif
 
-//    gpio_init(GPIO_PIN(PA, 4), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PA, 5), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PA, 6), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PA, 7), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PA, 8), GPIO_IN_PD);
+  //    gpio_init(GPIO_PIN(PA, 9), GPIO_OUT);
+  //    gpio_clear(GPIO_PIN(PA, 9));
+  //    gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);
+  //    gpio_clear(GPIO_PIN(PA, 13));
 
-//    gpio_init(GPIO_PIN(PB, 2), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PB, 3), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PB, 22), GPIO_IN_PU);
-//    gpio_init(GPIO_PIN(PB, 23), GPIO_IN_PU);
- 
- //   gpio_init(GPIO_PIN(PA, 30), GPIO_IN);
+  //    gpio_init(GPIO_PIN(PA, 4), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PA, 5), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PA, 6), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PA, 7), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PA, 8), GPIO_IN_PD);
 
-//    gpio_init(GPIO_PIN(PA, 27), GPIO_IN_PD);  // disable H10 internal Sensors in backup mode
-//    gpio_init(GPIO_PIN(PA, 28), GPIO_IN_PU);  // disable ACME Sensor 2 in backup mode
-//    gpio_init(GPIO_PIN(PA, 31), GPIO_IN_PD);  // disable ACME Sensor 2 in backup mode
+  //    gpio_init(GPIO_PIN(PB, 2), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PB, 3), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PB, 22), GPIO_IN_PU);
+  //    gpio_init(GPIO_PIN(PB, 23), GPIO_IN_PU);
 
-//    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
+  //   gpio_init(GPIO_PIN(PA, 30), GPIO_IN);
 
-    
-    poweroff_devices();
+  //    gpio_init(GPIO_PIN(PA, 27), GPIO_IN_PD);  // disable H10 internal
+  //    Sensors in backup mode gpio_init(GPIO_PIN(PA, 28), GPIO_IN_PU);  //
+  //    disable ACME Sensor 2 in backup mode gpio_init(GPIO_PIN(PA, 31),
+  //    GPIO_IN_PD);  // disable ACME Sensor 2 in backup mode
 
-//	saml21_cpu_debug();
+  //    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 
-    saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds, 1);
-	
-//    pm_set(sleepmode);
+  poweroff_devices();
 
-//    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of standby (pm_set(1) sleep
+  //	saml21_cpu_debug();
 
+  saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds,
+                           1);
 
-    return 0;
+  //    pm_set(sleepmode);
+
+  //    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming
+  //    out of standby (pm_set(1) sleep
+
+  return 0;
 }
 
-int sleep_msec_cmd(int argc, char **argv)
-{
-    if (argc < 2) {
-        puts("usage: sleep [<mode> <milliseconds>]");
-        return -1;
-    }
+int sleep_msec_cmd(int argc, char **argv) {
+  if (argc < 2) {
+    puts("usage: sleep [<mode> <milliseconds>]");
+    return -1;
+  }
 
-printf("args: %s %s %s\n",argv[0], argv[1],argv[2]);
+  printf("args: %s %s %s\n", argv[0], argv[1], argv[2]);
 
-    uint8_t sleepmode = 0;
-//    uint8_t extwake = 255;
-		if (argc < 3) {
-            puts("usage: sleep [<mode> <milliseconds>]");
-            return -1;
-        }
-		sleepmode = atoi(argv[1]);
-        uint32_t mseconds = atoi(argv[2]);
-        if (sleepmode !=0 && sleepmode !=1 && sleepmode !=2) {
-            puts("Invalid value for sleep mode.");
-            return -1;
-        }
-        if (mseconds == 0) {
-            puts("Invalid value for milliseconds.");
-            return -1;
-        }
-        printf("Scheduling an RTC wakeup in %lu milliseconds.\n", mseconds);
+  uint8_t sleepmode = 0;
+  //    uint8_t extwake = 255;
+  if (argc < 3) {
+    puts("usage: sleep [<mode> <milliseconds>]");
+    return -1;
+  }
+  sleepmode = atoi(argv[1]);
+  uint32_t mseconds = atoi(argv[2]);
+  if (sleepmode != 0 && sleepmode != 1 && sleepmode != 2) {
+    puts("Invalid value for sleep mode.");
+    return -1;
+  }
+  if (mseconds == 0) {
+    puts("Invalid value for milliseconds.");
+    return -1;
+  }
+  printf("Scheduling an RTC wakeup in %lu milliseconds.\n", mseconds);
 
-        rtt_set_counter(0);
-        rtt_set_alarm(RTT_MS_TO_TICKS(mseconds), NULL, NULL);
-        // disable EXTINT wakeup
-        RSTC->WKEN.reg = 0;
-	strcpy (myargv0, "radio");
-	strcpy (myargv1, "off");
-	myargv[2] = NULL;
-	lora_radio_cmd (2, (char **)myargv);
-  
-    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
-	
-    pm_set(sleepmode);
+  rtt_set_counter(0);
+  rtt_set_alarm(RTT_MS_TO_TICKS(mseconds), NULL, NULL);
+  // disable EXTINT wakeup
+  RSTC->WKEN.reg = 0;
+  strcpy(myargv0, "radio");
+  strcpy(myargv1, "off");
+  myargv[2] = NULL;
+  lora_radio_cmd(2, (char **)myargv);
 
-    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of standby (pm_set(1) sleep
+  gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
 
-    return 0;
+  pm_set(sleepmode);
+
+  gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of
+                               // standby (pm_set(1) sleep
+
+  return 0;
 }
 
+int simple_sleep_cmd(int seconds) {
+  if (seconds == 0) {
+    puts("Invalid value for seconds.");
+    return -1;
+  }
 
-int simple_sleep_cmd(int seconds)
-{
-	if (seconds == 0) {
-		puts("Invalid value for seconds.");
-        return -1;
-    }
+  rtt_set_counter(0);
+  rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
+  // disable EXTINT wakeup
+  RSTC->WKEN.reg = 0;
 
-    rtt_set_counter(0);
-    rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
-    // disable EXTINT wakeup
-    RSTC->WKEN.reg = 0;
-
-    puts("Now entering backup mode.");
+  puts("Now entering backup mode.");
 #if 0
     // turn off PORT pins
     size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
@@ -1120,42 +1104,40 @@ int simple_sleep_cmd(int seconds)
         gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
         gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
     }
-#endif    
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
-    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
+#endif
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+  gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
+  gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
 #endif
 
-    pm_set(0);
+  pm_set(0);
 
-    return 0;
+  return 0;
 }
 
+int debug_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-int debug_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    saml21_cpu_debug();
-    return 0;
+  saml21_cpu_debug();
+  return 0;
 }
 
+int vcc_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-
-int vcc_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    int32_t vcc = adc_sample(0, ADC_RES_12BIT);
-    printf("VCC: %ld  VCC rescaled: %ld,\n", vcc, vcc*4000/4095);  // rescaled vcc/4 to 1V=4095 counts
-    return 0;
+  int32_t vcc = adc_sample(0, ADC_RES_12BIT);
+  printf("VCC: %ld  VCC rescaled: %ld,\n", vcc,
+         vcc * 4000 / 4095);  // rescaled vcc/4 to 1V=4095 counts
+  return 0;
 }
 
 #ifdef BOARD_LORA3A_H10
 
-#if 0      // not working probably The temperature sensor is enabled/disabled by setting/clearing the Temperature Sensor Enable bit in the Voltage Reference register (VREF.TSEN).
+#if 0  // not working probably The temperature sensor is enabled/disabled by
+       // setting/clearing the Temperature Sensor Enable bit in the Voltage
+       // Reference register (VREF.TSEN).
 
 int read_cputemp(void)
 {
@@ -1178,273 +1160,373 @@ int cputemp_cmd(int argc, char **argv)
 }
 #endif
 
-int read_bandgap(void)
-{
-	int32_t vbandgap = adc_sample(3, ADC_RES_12BIT);
-	int32_t i;
-	for (i=0; i<7; i++) {
-		ztimer_sleep(ZTIMER_MSEC, 1);
-		vbandgap += adc_sample(3, ADC_RES_12BIT);
-	}
-    return (int)vbandgap>>3;
+int read_bandgap(void) {
+  int32_t vbandgap = adc_sample(3, ADC_RES_12BIT);
+  int32_t i;
+  for (i = 0; i < 7; i++) {
+    ztimer_sleep(ZTIMER_MSEC, 1);
+    vbandgap += adc_sample(3, ADC_RES_12BIT);
+  }
+  return (int)vbandgap >> 3;
 }
 
-int bandgap_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int bandgap_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    printf("Bandgap: %d\n", read_bandgap()); 
+  printf("Bandgap: %d\n", read_bandgap());
+  return 0;
+}
+
+int read_resistor(void) {
+  printf("ADC_NUMOF = %d\n", ADC_NUMOF);
+  gpio_init(GPIO_PIN(PA, 31), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 31));
+  ztimer_sleep(ZTIMER_MSEC, 100);
+  int32_t vresistor = adc_sample(2, ADC_RES_12BIT);
+  printf("ADC_2 READ = %ld\n", vresistor);
+  //	ztimer_sleep(ZTIMER_MSEC, 400);
+  int32_t i;
+  for (i = 0; i < 31; i++) {
+    //		ztimer_sleep(ZTIMER_MSEC, 1);
+    vresistor += adc_sample(2, ADC_RES_12BIT);
+    printf("ADC_2 READ = %ld\n", vresistor);
+    //	ztimer_sleep(ZTIMER_MSEC, 400);
+  }
+  gpio_clear(GPIO_PIN(PA, 31));
+  //	saml21_cpu_debug();
+  return (int)vresistor >> 5;
+}
+
+int vresistor_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+
+  printf("VResistor: %d\n", read_resistor());
+  return 0;
+}
+
+int read_vpanel(void) {
+  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 27));
+  ztimer_sleep(ZTIMER_MSEC, 10);
+  int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+  int32_t i;
+  for (i = 0; i < 7; i++) {
+    ztimer_sleep(ZTIMER_MSEC, 1);
+    vpanel += adc_sample(1, ADC_RES_12BIT);
+  }
+  gpio_clear(GPIO_PIN(PA, 27));
+  return (int)vpanel >> 3;
+}
+
+int vpanel_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+
+  printf(
+      "VPanel: %d\n",
+      read_vpanel() * 3933 /
+          4095);  // adapted to real resistor partition factor (75k over 220k)
+  return 0;
+}
+
+int temp_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+
+  double temp;
+  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 27));
+  if (read_hdc(&temp, NULL)) {
+    puts("ERROR: reading temperature");
     return 0;
+  }
+  gpio_clear(GPIO_PIN(PA, 27));
+  printf("Temp: %.2f\n", temp);
+  return 0;
 }
 
+int hum_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-int read_resistor(void)
-{
-	printf("ADC_NUMOF = %d\n", ADC_NUMOF);
-	gpio_init(GPIO_PIN(PA, 31), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 31));
-	ztimer_sleep(ZTIMER_MSEC, 100);
-	int32_t vresistor = adc_sample(2, ADC_RES_12BIT);
-	printf("ADC_2 READ = %ld\n", vresistor);
-//	ztimer_sleep(ZTIMER_MSEC, 400);
-	int32_t i;
-	for (i=0; i<31; i++) {
-//		ztimer_sleep(ZTIMER_MSEC, 1);
-		vresistor += adc_sample(2, ADC_RES_12BIT);
-		printf("ADC_2 READ = %ld\n", vresistor);
-//	ztimer_sleep(ZTIMER_MSEC, 400);
-	}
-	gpio_clear(GPIO_PIN(PA, 31));
-//	saml21_cpu_debug();
-    return (int)vresistor>>5;
-}
-
-int vresistor_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    printf("VResistor: %d\n", read_resistor());
+  double hum;
+  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 27));
+  if (read_hdc(NULL, &hum)) {
+    puts("ERROR: reading humidity");
     return 0;
-}
-
-
-int read_vpanel(void)
-{
-	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 27));
-	ztimer_sleep(ZTIMER_MSEC, 10);
-	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
-	int32_t i;
-	for (i=0; i<7; i++) {
-		ztimer_sleep(ZTIMER_MSEC, 1);
-		vpanel += adc_sample(1, ADC_RES_12BIT);
-	}
-	gpio_clear(GPIO_PIN(PA, 27));
-    return (int)vpanel>>3;
-}
-
-int vpanel_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    printf("VPanel: %d\n", read_vpanel()*3933/4095); // adapted to real resistor partition factor (75k over 220k)
-    return 0;
-}
-
-int temp_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    double temp;
-	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 27));
-    if (read_hdc(&temp, NULL)) {
-        puts("ERROR: reading temperature");
-        return 0;
-    }
-	gpio_clear(GPIO_PIN(PA, 27));
-    printf("Temp: %.2f\n", temp);
-    return 0;
-}
-
-int hum_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    double hum;
-	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 27));
-    if (read_hdc(NULL, &hum)) {
-        puts("ERROR: reading humidity");
-        return 0;
-    }
-	gpio_clear(GPIO_PIN(PA, 27));
-    printf("Hum: %.2f\n", hum);
-    return 0;
+  }
+  gpio_clear(GPIO_PIN(PA, 27));
+  printf("Hum: %.2f\n", hum);
+  return 0;
 }
 #endif
 
 #ifdef BOARD_LORA3A_SENSOR1
-int read_vpanel(void)
-{
-	gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 19));
-	ztimer_sleep(ZTIMER_MSEC, 10);
-	int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
-	gpio_clear(GPIO_PIN(PA, 19));
-    return (int)vpanel;
+int read_vpanel(void) {
+  gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 19));
+  ztimer_sleep(ZTIMER_MSEC, 10);
+  int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+  gpio_clear(GPIO_PIN(PA, 19));
+  return (int)vpanel;
 }
 
-int vpanel_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int vpanel_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    printf("VPanel: %d\n", read_vpanel());
-    return 0;
+  printf("VPanel: %d\n", read_vpanel());
+  return 0;
 }
 
-int temp_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int temp_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    double temp;
-    if (read_hdc(&temp, NULL)) {
-        puts("ERROR: reading temperature");
-        return 0;
-    }
-    printf("Temp: %.2f\n", temp);
+  double temp;
+  if (read_hdc(&temp, NULL)) {
+    puts("ERROR: reading temperature");
     return 0;
+  }
+  printf("Temp: %.2f\n", temp);
+  return 0;
 }
 
-int hum_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int hum_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    double hum;
-    if (read_hdc(NULL, &hum)) {
-        puts("ERROR: reading humidity");
-        return 0;
-    }
-    printf("Hum: %.2f\n", hum);
+  double hum;
+  if (read_hdc(NULL, &hum)) {
+    puts("ERROR: reading humidity");
     return 0;
+  }
+  printf("Hum: %.2f\n", hum);
+  return 0;
 }
 
 #endif
 
-int acc_cmd(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
+int acc_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
 
-    float x_mg, y_mg, z_mg;
-    if (read_lis2dw12(&x_mg, &y_mg, &z_mg)) {
-        puts("ERROR: reading acceleration");
-        return 0;
-    }
-    printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f\n", x_mg, y_mg, z_mg);
+  float x_mg, y_mg, z_mg;
+  if (read_lis2dw12(&x_mg, &y_mg, &z_mg)) {
+    puts("ERROR: reading acceleration");
     return 0;
+  }
+
+  printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f, %4.2f\n", x_mg, y_mg, z_mg, 1000.99);
+  return 0;
 }
 
-int persist_cmd(int argc, char **argv)
-{
-    uint8_t *persist;
-    size_t len = rtc_mem_size();
+typedef struct {
+  float x_mg;
+  float y_mg;
+  float z_mg;
+} accelerometer;
 
-    if (argc < 2) {
-        puts("usage: persist get|set");
-        return -1;
+float calculate_g(accelerometer acc_data) {
+  return sqrt(pow(acc_data.x_mg, 2) + pow(acc_data.y_mg, 2) +
+              pow(acc_data.z_mg, 2));
+}
+
+_Bool variance_error(accelerometer *acc_mean, accelerometer *acc, int acc_size,
+                     float variance) {
+  for (int i = 0; i < acc_size; i++) {
+    if (fabs((*acc_mean).x_mg - acc[i].x_mg) > variance ||
+        fabs((*acc_mean).y_mg - acc[i].y_mg) > variance ||
+        fabs((*acc_mean).z_mg - acc[i].z_mg) > variance) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+void acceleration_mean(accelerometer *acc_mean, accelerometer *acc_data,
+                       int acc_data_lenght) {
+  for (int i = 0; i < acc_data_lenght; i++) {
+    (*acc_mean).x_mg += acc_data[i].x_mg / acc_data_lenght;
+    (*acc_mean).y_mg += acc_data[i].y_mg / acc_data_lenght;
+    (*acc_mean).z_mg += acc_data[i].z_mg / acc_data_lenght;
+  }
+}
+
+typedef struct {
+  float pitch;
+  float roll;
+  float yaw;
+} rotation_matrix;
+
+void calculate_rotation(rotation_matrix *rot_matrix, accelerometer acc,
+                        float g_total) {
+#define M_PI (3.14159265358979323846)
+  float pitch_ = acc.y_mg / g_total;
+  float roll_ = acc.x_mg / g_total;
+  float yaw_ = acc.z_mg / g_total;
+
+  (*rot_matrix).pitch = asin(pitch_) * 180 / M_PI;
+  (*rot_matrix).roll = asin(roll_) * 180 / M_PI;
+  (*rot_matrix).yaw = asin(yaw_) * 180 / M_PI;
+}
+
+int acc2_cmd(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+
+#define WINDOW 5
+#define VARIANCE 7
+#define MAX_RETRY 5
+
+  accelerometer data[WINDOW];
+
+  accelerometer acc_mean = {0, 0, 0};
+  float g_force = 0;
+
+  _Bool ok_variance = false;
+
+  int retry = 0;
+
+  do {
+    for (int i = 0; i < WINDOW; i++) {
+      if (read_lis2dw12(&(data[i].x_mg), &(data[i].y_mg), &(data[i].z_mg))) {
+        puts("ERROR: reading acceleration");
+        return 0;
+      }
+      // printf("[ACC] read %d: \n", i);
     }
 
-    if (strstr(argv[1], "get") != NULL) {
-        if((persist = malloc(len)) != NULL) {
-            rtc_mem_read(0, persist, len);
-            puts("Persisted values:");
-            for(size_t i = 0; i < len; i++) {
-                printf(" %02x\n", persist[i]);
-            }
-            puts("");
-            free(persist);
-        } else {
-            printf("ERROR: malloc failed\n");
-        }
-        return 0;
-    } else if (strstr(argv[1], "set") != NULL) {
-        if (argc < 3 || (size_t)(argc - 2) > len) {
-            printf("usage: persist set <8bit> ... # up to %d values\n", len);
-            return -1;
-        }
-        if((persist = malloc(len)) != NULL) {
-            size_t n = (size_t)(argc - 2);
-            for (size_t i = 0; i < n; i++) {
-                int ch = atoi(argv[i + 2]);
-                if (ch < 0 || ch > 255) {
-                    printf("Invalid value %s at position %d", argv[i + 2], i);
-                    return -1;
-                }
-                persist[i] = ch;
-            }
-            rtc_mem_write(0, persist, n);
-            rtc_mem_read(0, persist, len);
-            puts("Persisted values now:");
-            for(size_t i = 0; i < len; i++) {
-                printf(" %02x\n", persist[i]);
-            }
-            puts("");
-            free(persist);
-        } else {
-            printf("ERROR: malloc failed\n");
-        }
+    acceleration_mean(&acc_mean, data, WINDOW);
+
+    for (int i = 0; i < WINDOW; i++) {
+      printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f\n", data[i].x_mg,
+             data[i].y_mg, data[i].z_mg);
+    }
+
+    g_force = calculate_g(acc_mean);
+
+    printf("Acceleration MEAN [mg]: %4.2f, %4.2f, %4.2f, %4.2f\n",
+           acc_mean.x_mg, acc_mean.y_mg, acc_mean.z_mg, g_force);
+
+    if (variance_error(&acc_mean, data, WINDOW, VARIANCE)) {
+      ok_variance = false;
+
+      acc_mean.x_mg = 0;
+      acc_mean.y_mg = 0;
+      acc_mean.z_mg = 0;
+      g_force = 0;
+      retry += 1;
     } else {
-        puts("usage: persist <get|set>");
-        return -1;
+      ok_variance = true;
+    }
+
+  } while (!ok_variance && retry < MAX_RETRY);
+
+  rotation_matrix rot_matrix = {0, 0, 0};
+  calculate_rotation(&rot_matrix, acc_mean, g_force);
+
+  printf("[ROTATION] PITCH [°]: % 3.2f\n", rot_matrix.pitch);
+  printf("[ROTATION] ROLL  [°]: % 3.2f\n", rot_matrix.roll);
+  printf("[ROTATION] YAW   [°]: % 3.2f\n", rot_matrix.yaw);
+
+  return 0;
+}
+
+int persist_cmd(int argc, char **argv) {
+  uint8_t *persist;
+  size_t len = rtc_mem_size();
+
+  if (argc < 2) {
+    puts("usage: persist get|set");
+    return -1;
+  }
+
+  if (strstr(argv[1], "get") != NULL) {
+    if ((persist = malloc(len)) != NULL) {
+      rtc_mem_read(0, persist, len);
+      puts("Persisted values:");
+      for (size_t i = 0; i < len; i++) {
+        printf(" %02x\n", persist[i]);
+      }
+      puts("");
+      free(persist);
+    } else {
+      printf("ERROR: malloc failed\n");
     }
     return 0;
+  } else if (strstr(argv[1], "set") != NULL) {
+    if (argc < 3 || (size_t)(argc - 2) > len) {
+      printf("usage: persist set <8bit> ... # up to %d values\n", len);
+      return -1;
+    }
+    if ((persist = malloc(len)) != NULL) {
+      size_t n = (size_t)(argc - 2);
+      for (size_t i = 0; i < n; i++) {
+        int ch = atoi(argv[i + 2]);
+        if (ch < 0 || ch > 255) {
+          printf("Invalid value %s at position %d", argv[i + 2], i);
+          return -1;
+        }
+        persist[i] = ch;
+      }
+      rtc_mem_write(0, persist, n);
+      rtc_mem_read(0, persist, len);
+      puts("Persisted values now:");
+      for (size_t i = 0; i < len; i++) {
+        printf(" %02x\n", persist[i]);
+      }
+      puts("");
+      free(persist);
+    } else {
+      printf("ERROR: malloc failed\n");
+    }
+  } else {
+    puts("usage: persist <get|set>");
+    return -1;
+  }
+  return 0;
 }
 
 #if defined(BOARD_LORA3A_H10) || defined(BOARD_LORA3A_SENSOR1)
-int tx_data(int argc, char **argv)
-{
-	uint16_t dst = 0xffff; // broadcast by default
+int tx_data(int argc, char **argv) {
+  uint16_t dst = 0xffff;  // broadcast by default
 
-	if (!sx127x_power) {
-		puts("Radio is off");
-		return -1;
-	}
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
 
-	if (argc == 2) {
-		dst = atoi(argv[1]) & 0xffff;
-	}
-	// read vcc now
-	int32_t vcc = adc_sample(0, ADC_RES_12BIT);
+  if (argc == 2) {
+    dst = atoi(argv[1]) & 0xffff;
+  }
+  // read vcc now
+  int32_t vcc = adc_sample(0, ADC_RES_12BIT);
 
-	// read vpanel and temp and hum now
-#ifdef BOARD_LORA3A_H10	
-	gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
-	gpio_set(GPIO_PIN(PA, 27));
+  // read vpanel and temp and hum now
+#ifdef BOARD_LORA3A_H10
+  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 27));
 #endif
-	int myvpanel = read_vpanel();
-    double temp=0, hum=0;
-    if (read_hdc(&temp, &hum)) {
-		puts("HDC2021 is unreadable!");
-    }
-#ifdef BOARD_LORA3A_H10	
-	gpio_clear(GPIO_PIN(PA, 27));
+  int myvpanel = read_vpanel();
+  double temp = 0, hum = 0;
+  if (read_hdc(&temp, &hum)) {
+    puts("HDC2021 is unreadable!");
+  }
+#ifdef BOARD_LORA3A_H10
+  gpio_clear(GPIO_PIN(PA, 27));
 #endif
-	strcpy(myargv0, "send_cmd");
-	sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc, myvpanel, temp, hum);
-	sprintf(myargv2, "%d", dst);
-	myargv[2]= myargv2;
-	myargv[3] = NULL;
-	send_cmd(3, (char **)myargv);
-	return 0;
+  strcpy(myargv0, "send_cmd");
+  sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc,
+          myvpanel, temp, hum);
+  sprintf(myargv2, "%d", dst);
+  myargv[2] = myargv2;
+  myargv[3] = NULL;
+  send_cmd(3, (char **)myargv);
+  return 0;
 }
 #endif
 
@@ -1452,278 +1534,284 @@ int tx_data(int argc, char **argv)
 
 static const shell_command_t shell_commands[] = {
 #ifdef MODULE_SX1276
-    { "radio",    "Start/Stop LoRa module",                  lora_radio_cmd },
-    { "setup",    "Initialize LoRa modulation settings",     lora_setup_cmd },
-    { "channel",  "Get/Set channel frequency (in Hz)",       channel_cmd },
-    { "network",  "Get/Set network identifier",              network_cmd },
-    { "address",  "Get/Set network address",                 address_cmd },
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-    { "boost",    "Get/Set power boost mode",                boost_cmd },
+    {"radio", "Start/Stop LoRa module", lora_radio_cmd},
+    {"setup", "Initialize LoRa modulation settings", lora_setup_cmd},
+    {"channel", "Get/Set channel frequency (in Hz)", channel_cmd},
+    {"network", "Get/Set network identifier", network_cmd},
+    {"address", "Get/Set network address", address_cmd},
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+    {"boost", "Get/Set power boost mode", boost_cmd},
 #endif
-    { "txpower",  "Get/Set transmission power",              txpower_cmd },
-    { "send",     "Send string",                             send_cmd },
-    { "listen",   "Listen for packets",                      listen_cmd },
-    { "sniff",    "Get/Set packet sniffing mode",            sniff_cmd },
+    {"txpower", "Get/Set transmission power", txpower_cmd},
+    {"send", "Send string", send_cmd},
+    {"listen", "Listen for packets", listen_cmd},
+    {"sniff", "Get/Set packet sniffing mode", sniff_cmd},
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
-    { "txdata", "Send node data",						 	 tx_data },
+    {"txdata", "Send node data", tx_data},
 #endif
 #endif
 #ifdef CPU_SAML21
-    { "corefreq", "Get/Set core frequency",                  corefreq_cmd },
-    { "dividers", "Get/Set power domains dividers",          dividers_cmd },
-    { "perf",     "Get/Set performance level",               perf_cmd },
-    { "vreg",     "Get/Set voltage regulator",               vreg_cmd },
-    { "baud",     "Get/Set console baud rate",               baud_cmd },
-    { "sleep",    "Enter power save modes",                sleep_cmd },
-    { "msecsleep","Enter sleep mode msec",                sleep_msec_cmd },
-    { "debug",    "Show SAML21 peripherals config",          debug_cmd },
-    { "vcc",      "Read VCC from ADC",                       vcc_cmd },
+    {"corefreq", "Get/Set core frequency", corefreq_cmd},
+    {"dividers", "Get/Set power domains dividers", dividers_cmd},
+    {"perf", "Get/Set performance level", perf_cmd},
+    {"vreg", "Get/Set voltage regulator", vreg_cmd},
+    {"baud", "Get/Set console baud rate", baud_cmd},
+    {"sleep", "Enter power save modes", sleep_cmd},
+    {"msecsleep", "Enter sleep mode msec", sleep_msec_cmd},
+    {"debug", "Show SAML21 peripherals config", debug_cmd},
+    {"vcc", "Read VCC from ADC", vcc_cmd},
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
-    { "vpanel",   "Read VPanel from ADC",                    vpanel_cmd },
-    { "vresistor",   "Read VResistor from ADC",              vresistor_cmd },
-    { "bandgap",   "Read Internal reference voltage from ADC", bandgap_cmd },
-//    { "cputemp",   "Read Internal CPU Temperature from ADC",   cputemp_cmd },
-    { "temp",     "Read temperature from HDC2021",           temp_cmd },
-    { "hum",      "Read humidity from HDC2021",              hum_cmd },
+    {"vpanel", "Read VPanel from ADC", vpanel_cmd},
+    {"vresistor", "Read VResistor from ADC", vresistor_cmd},
+    {"bandgap", "Read Internal reference voltage from ADC", bandgap_cmd},
+    //    { "cputemp",   "Read Internal CPU Temperature from ADC",   cputemp_cmd
+    //    },
+    {"temp", "Read temperature from HDC2021", temp_cmd},
+    {"hum", "Read humidity from HDC2021", hum_cmd},
 #endif
-    { "acc",      "Read acceleration from LIS2DW12",         acc_cmd },
-    { "persist",  "Get/Set 64 bits unaffected by backup mode", persist_cmd },
+    {"acc", "Read acceleration from LIS2DW12", acc_cmd},
+    {"acc2", "Read acceleration from LIS2DW12 Improved", acc2_cmd},
+    {"persist", "Get/Set 64 bits unaffected by backup mode", persist_cmd},
 #endif
-    { NULL, NULL, NULL }
-};
+    {NULL, NULL, NULL}};
 
 #ifdef MODULE_SX1276
 uint16_t uint16(char *ptr) {
-    uint16_t result = ptr[0] + (ptr[1]<<8);
-    return result;
+  uint16_t result = ptr[0] + (ptr[1] << 8);
+  return result;
 }
 
-static void _event_cb(netdev_t *dev, netdev_event_t event)
-{
-    if (event == NETDEV_EVENT_ISR) {
-        msg_t msg;
+static void _event_cb(netdev_t *dev, netdev_event_t event) {
+  if (event == NETDEV_EVENT_ISR) {
+    msg_t msg;
 
-        msg.type = MSG_TYPE_ISR;
-        msg.content.ptr = dev;
+    msg.type = MSG_TYPE_ISR;
+    msg.content.ptr = dev;
 
-        if (msg_send(&msg, _recv_pid) <= 0) {
-            puts("gnrc_netdev: possibly lost interrupt.");
-        }
+    if (msg_send(&msg, _recv_pid) <= 0) {
+      puts("gnrc_netdev: possibly lost interrupt.");
     }
-    else {
-        size_t len;
-        netdev_lora_rx_info_t packet_info;
-        uint16_t cnt, net, src, dst;
-        switch (event) {
-            case NETDEV_EVENT_RX_STARTED:
-                puts("Data reception started");
-                break;
+  } else {
+    size_t len;
+    netdev_lora_rx_info_t packet_info;
+    uint16_t cnt, net, src, dst;
+    switch (event) {
+      case NETDEV_EVENT_RX_STARTED:
+        puts("Data reception started");
+        break;
 
-			case NETDEV_EVENT_RX_TIMEOUT:
-				puts("RX TIMEOUT!");
+      case NETDEV_EVENT_RX_TIMEOUT:
+        puts("RX TIMEOUT!");
 #ifdef BOARD_LORA3A_SENSOR1
-				strcpy (myargv0, "radio");
-				strcpy (myargv1, "off");
-				myargv[2] = NULL;
-				lora_radio_cmd (2, (char **)myargv);
-				simple_sleep_cmd (10);
+        strcpy(myargv0, "radio");
+        strcpy(myargv1, "off");
+        myargv[2] = NULL;
+        lora_radio_cmd(2, (char **)myargv);
+        simple_sleep_cmd(10);
 #endif
 #ifdef BOARD_LORA3A_DONGLE
-				for (int i=0; i<50000; i++)
-				{
-					strcpy (myargv0, "radio"); // this takes approx 50ms
-				}
-//				ztimer_sleep(ZTIMER_MSEC, 50); // this creates stack error. changed with for()
+        for (int i = 0; i < 50000; i++) {
+          strcpy(myargv0, "radio");  // this takes approx 50ms
+        }
+        //				ztimer_sleep(ZTIMER_MSEC, 50); // this
+        // creates stack error. changed with for()
 
-				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
+        listen_cmd(
+            0,
+            0);  // go again in listen mode to accept transmissions from nodes
 #endif
-				break;
+        break;
 
-            case NETDEV_EVENT_RX_COMPLETE:
-                len = dev->driver->recv(dev, NULL, 0, 0);
-                dev->driver->recv(dev, message, len, &packet_info);
-                if (emb_sniff) {
-                    printf("{Received: %u bytes, RSSI: %i, SNR: %i, TOA: %" PRIu32 "}\n",
-                        len, packet_info.rssi, (int)packet_info.snr,
-                        sx127x_get_time_on_air((const sx127x_t *)dev, len));
-                    if(len>10 && uint16(message) == 0x00e0) {
-                        cnt = uint16(message+2);
-                        net = uint16(message+4);
-                        dst = uint16(message+6);
-                        src = uint16(message+8);
-                        printf("EMB packet: counter=%04x, network=%04x, dst=%04x, src=%04x. Payload:\n", cnt, net, dst, src);
-                        od_hex_dump(message+10, len-10 < 128 ? len-10 : 128, 0);
-                    } else {
-                        printf("RAW packet:\n");
-                        od_hex_dump(message, len < 128 ? len : 128, 0);
-                    }
-                } else if(len>10 && uint16(message) == 0x00e0) {
-                    cnt = uint16(message+2);
-                    net = uint16(message+4);
-                    dst = uint16(message+6);
-                    src = uint16(message+8);
-                    if ((net == emb_network) && ((dst == emb_address) || (dst == 0xffff))) {
-                        printf("EMB packet: dst=%04x, src=%04x, RSSI=%i, SNR=%i. Payload:\n", dst, src, packet_info.rssi, packet_info.snr);
-                        od_hex_dump(message+10, len-10 < 128 ? len-10 : 128, 0);
+      case NETDEV_EVENT_RX_COMPLETE:
+        len = dev->driver->recv(dev, NULL, 0, 0);
+        dev->driver->recv(dev, message, len, &packet_info);
+        if (emb_sniff) {
+          printf("{Received: %u bytes, RSSI: %i, SNR: %i, TOA: %" PRIu32 "}\n",
+                 len, packet_info.rssi, (int)packet_info.snr,
+                 sx127x_get_time_on_air((const sx127x_t *)dev, len));
+          if (len > 10 && uint16(message) == 0x00e0) {
+            cnt = uint16(message + 2);
+            net = uint16(message + 4);
+            dst = uint16(message + 6);
+            src = uint16(message + 8);
+            printf(
+                "EMB packet: counter=%04x, network=%04x, dst=%04x, src=%04x. "
+                "Payload:\n",
+                cnt, net, dst, src);
+            od_hex_dump(message + 10, len - 10 < 128 ? len - 10 : 128, 0);
+          } else {
+            printf("RAW packet:\n");
+            od_hex_dump(message, len < 128 ? len : 128, 0);
+          }
+        } else if (len > 10 && uint16(message) == 0x00e0) {
+          cnt = uint16(message + 2);
+          net = uint16(message + 4);
+          dst = uint16(message + 6);
+          src = uint16(message + 8);
+          if ((net == emb_network) &&
+              ((dst == emb_address) || (dst == 0xffff))) {
+            printf(
+                "EMB packet: dst=%04x, src=%04x, RSSI=%i, SNR=%i. Payload:\n",
+                dst, src, packet_info.rssi, packet_info.snr);
+            od_hex_dump(message + 10, len - 10 < 128 ? len - 10 : 128, 0);
 #ifdef TEST1_MODE
-    #ifdef BOARD_LORA3A_SENSOR1
-                        // test of a remote command "go to sleep for n seconds (1 to 9)"
-                        // message needs to have "@" as start packet and "#" as stop packet, the single digit number inside is the number of seconds to sleep
-                        if (*(message+10) == '@')
-                        {
-							uint32_t seconds = *(message+11)-0x30;
-							if (*(message+12) == '$')
-							{
-								if (seconds > 0 && seconds < 10)
-								{
-									printf("Command received: go to sleep for %ld s!\n", seconds);
-									strcpy (myargv0, "sleep");
-									sprintf (myargv1, "%ld", seconds);
-									myargv[2] = NULL;
-									sleep_cmd (2, (char **)myargv);
-								} else printf ("invalid number of seconds\n");
-							} else printf ("invalid command received\n");
-						}
-	#endif
-    #ifdef BOARD_LORA3A_DONGLE
-						// received transmission from node src.
-						// tell him to sleep for 1 seconds
-						printf("Num messages received from node = %ld\n", ++num_messages);
-						strcpy(myargv0, "send_cmd");
-						strcpy(myargv1, "@9$");
-						sprintf(myargv2, "%d", src);
-						myargv[2]= myargv2;
-						myargv[3] = NULL;
-						ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
-						send_cmd(3, (char **)myargv);
-						listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
-	#endif
-#endif
-                    }
-                }
-                break;
-
-            case NETDEV_EVENT_TX_COMPLETE:
-                sx127x_set_sleep(&sx127x);
-                puts("Transmission completed");
-                break;
-
-            case NETDEV_EVENT_CAD_DONE:
-                break;
-
-            case NETDEV_EVENT_TX_TIMEOUT:
-                sx127x_set_sleep(&sx127x);
-                break;
-
-            default:
-                printf("Unexpected netdev event received: %d\n", event);
 #ifdef BOARD_LORA3A_SENSOR1
-				simple_sleep_cmd (10);
+            // test of a remote command "go to sleep for n seconds (1 to 9)"
+            // message needs to have "@" as start packet and "#" as stop packet,
+            // the single digit number inside is the number of seconds to sleep
+            if (*(message + 10) == '@') {
+              uint32_t seconds = *(message + 11) - 0x30;
+              if (*(message + 12) == '$') {
+                if (seconds > 0 && seconds < 10) {
+                  printf("Command received: go to sleep for %ld s!\n", seconds);
+                  strcpy(myargv0, "sleep");
+                  sprintf(myargv1, "%ld", seconds);
+                  myargv[2] = NULL;
+                  sleep_cmd(2, (char **)myargv);
+                } else
+                  printf("invalid number of seconds\n");
+              } else
+                printf("invalid command received\n");
+            }
 #endif
 #ifdef BOARD_LORA3A_DONGLE
-				for (int i=0; i<50000; i++)
-				{
-					strcpy (myargv0, "radio"); // this takes approx 50ms
-				}
-				listen_cmd(0, 0); // go again in listen mode to accept transmissions from nodes
+            // received transmission from node src.
+            // tell him to sleep for 1 seconds
+            printf("Num messages received from node = %ld\n", ++num_messages);
+            strcpy(myargv0, "send_cmd");
+            strcpy(myargv1, "@9$");
+            sprintf(myargv2, "%d", src);
+            myargv[2] = myargv2;
+            myargv[3] = NULL;
+            ztimer_sleep(ZTIMER_MSEC,
+                         200);  // without this it blocks in backup mode
+            send_cmd(3, (char **)myargv);
+            listen_cmd(0, 0);  // go again in listen mode to accept
+                               // transmissions from nodes
 #endif
-                break;
+#endif
+          }
         }
+        break;
+
+      case NETDEV_EVENT_TX_COMPLETE:
+        sx127x_set_sleep(&sx127x);
+        puts("Transmission completed");
+        break;
+
+      case NETDEV_EVENT_CAD_DONE:
+        break;
+
+      case NETDEV_EVENT_TX_TIMEOUT:
+        sx127x_set_sleep(&sx127x);
+        break;
+
+      default:
+        printf("Unexpected netdev event received: %d\n", event);
+#ifdef BOARD_LORA3A_SENSOR1
+        simple_sleep_cmd(10);
+#endif
+#ifdef BOARD_LORA3A_DONGLE
+        for (int i = 0; i < 50000; i++) {
+          strcpy(myargv0, "radio");  // this takes approx 50ms
+        }
+        listen_cmd(
+            0,
+            0);  // go again in listen mode to accept transmissions from nodes
+#endif
+        break;
     }
+  }
 }
 
-void *_recv_thread(void *arg)
-{
-    (void)arg;
+void *_recv_thread(void *arg) {
+  (void)arg;
 
-    static msg_t _msg_q[SX127X_LORA_MSG_QUEUE];
-    msg_init_queue(_msg_q, SX127X_LORA_MSG_QUEUE);
+  static msg_t _msg_q[SX127X_LORA_MSG_QUEUE];
+  msg_init_queue(_msg_q, SX127X_LORA_MSG_QUEUE);
 
-    while (1) {
-        msg_t msg;
-        msg_receive(&msg);
-        if (msg.type == MSG_TYPE_ISR) {
-            netdev_t *dev = msg.content.ptr;
-            dev->driver->isr(dev);
-        }
-        else {
-            puts("Unexpected msg type");
-        }
+  while (1) {
+    msg_t msg;
+    msg_receive(&msg);
+    if (msg.type == MSG_TYPE_ISR) {
+      netdev_t *dev = msg.content.ptr;
+      dev->driver->isr(dev);
+    } else {
+      puts("Unexpected msg type");
     }
+  }
 }
 #endif
 
-int main(void)
-{
-	
-    puts("\n\n\n");
-    size_t len = rtc_mem_size();
-    printf("RTC mem size: %d\n", len);
-//    saml21_cpu_debug();
-
+int main(void) {
+  puts("\n\n\n");
+  size_t len = rtc_mem_size();
+  printf("RTC mem size: %d\n", len);
+  //    saml21_cpu_debug();
 
 #ifdef MODULE_SX1276
-    sx127x.params = sx127x_params[0];
-    netdev_t *netdev = (netdev_t *)&sx127x;
-    netdev->driver = &sx127x_driver;
-    netdev->event_callback = _event_cb;
+  sx127x.params = sx127x_params[0];
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  netdev->driver = &sx127x_driver;
+  netdev->event_callback = _event_cb;
 
-    _recv_pid = thread_create(stack, sizeof(stack), THREAD_PRIORITY_MAIN - 1,
-                              THREAD_CREATE_STACKTEST, _recv_thread, NULL,
-                              "recv_thread");
+  _recv_pid =
+      thread_create(stack, sizeof(stack), THREAD_PRIORITY_MAIN - 1,
+                    THREAD_CREATE_STACKTEST, _recv_thread, NULL, "recv_thread");
 
-    if (_recv_pid <= KERNEL_PID_UNDEF) {
-        puts("Creation of receiver thread failed");
-        return 1;
-    }
+  if (_recv_pid <= KERNEL_PID_UNDEF) {
+    puts("Creation of receiver thread failed");
+    return 1;
+  }
 
-    gpio_set(TCXO_PWR_PIN);
-    // init the radio at boot and switch it off. It seems that you cannot avoid to initialize the radio otherwise it will draw more power
-    if (netdev->driver->init(netdev) < 0) {
-        puts("Failed to reinitialize SX127x device, exiting");
-        return -1;
-    }
+  gpio_set(TCXO_PWR_PIN);
+  // init the radio at boot and switch it off. It seems that you cannot avoid to
+  // initialize the radio otherwise it will draw more power
+  if (netdev->driver->init(netdev) < 0) {
+    puts("Failed to reinitialize SX127x device, exiting");
+    return -1;
+  }
 
-    sx127x_set_sleep(&sx127x);
-    spi_release(sx127x.params.spi);
-    spi_deinit_pins(sx127x.params.spi);
-#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-    gpio_clear(TCXO_PWR_PIN);
-    gpio_clear(TX_OUTPUT_SEL_PIN);
+  sx127x_set_sleep(&sx127x);
+  spi_release(sx127x.params.spi);
+  spi_deinit_pins(sx127x.params.spi);
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+  gpio_clear(TCXO_PWR_PIN);
+  gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
-    sx127x_power = 0;
+  sx127x_power = 0;
 
 #endif
-
 
 #ifdef POWER_PROFILING
-    gpio_init(LED1_PIN, GPIO_OUT);
-    gpio_clear(LED1_PIN);
-    ztimer_sleep(ZTIMER_MSEC, 1000);
-    gpio_set(LED1_PIN);
+  gpio_init(LED1_PIN, GPIO_OUT);
+  gpio_clear(LED1_PIN);
+  ztimer_sleep(ZTIMER_MSEC, 1000);
+  gpio_set(LED1_PIN);
 #endif
-    printf("EMB-LEAF Compiled: %s,%s\n", __DATE__, __TIME__);
-    /* start the shell */
-    puts("Initialization successful - starting the shell now");
-    char line_buf[SHELL_DEFAULT_BUFSIZE];
+  printf("EMB-LEAF Compiled: %s,%s\n", __DATE__, __TIME__);
+  /* start the shell */
+  puts("Initialization successful - starting the shell now");
+  char line_buf[SHELL_DEFAULT_BUFSIZE];
 
 #ifdef TEST1_MODE
-  #ifdef BOARD_LORA3A_SENSOR1
-    printf("Board = sensor1. address = %d\n", emb_address);
-    // Test sending data at wakeup then go in listen mode
-    strcpy(myargv0, "tx_data");
-    sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff (see beginning of this file for addresses set
-    myargv[2] = NULL;
-	tx_data(2, myargv);
-	ztimer_sleep(ZTIMER_MSEC, 200); // without this it blocks in backup mode
-    listen_cmd(0, 0); // start in listen mode to accept commands from remote
-  #endif
-  #ifdef BOARD_LORA3A_DONGLE
-    printf("Board = dongle. address = %d\n", emb_address);
-    listen_cmd(0, 0); // start in listen mode to accept transmissions from nodes
-  #endif
+#ifdef BOARD_LORA3A_SENSOR1
+  printf("Board = sensor1. address = %d\n", emb_address);
+  // Test sending data at wakeup then go in listen mode
+  strcpy(myargv0, "tx_data");
+  sprintf(myargv1, "%d", 254);  // send to dongle #254 instead of default ffff
+                                // (see beginning of this file for addresses set
+  myargv[2] = NULL;
+  tx_data(2, myargv);
+  ztimer_sleep(ZTIMER_MSEC, 200);  // without this it blocks in backup mode
+  listen_cmd(0, 0);  // start in listen mode to accept commands from remote
 #endif
-    shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
+#ifdef BOARD_LORA3A_DONGLE
+  printf("Board = dongle. address = %d\n", emb_address);
+  listen_cmd(0, 0);  // start in listen mode to accept transmissions from nodes
+#endif
+#endif
+  shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
-    return 0;
+  return 0;
 }

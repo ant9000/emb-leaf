@@ -1155,56 +1155,10 @@ int cputemp_cmd(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    printf("CPUTemp: %d\n", read_cputemp()); 
+    printf("CPUTemp: %d\n", read_cputemp());
     return 0;
 }
 #endif
-
-int read_bandgap(void) {
-  int32_t vbandgap = adc_sample(3, ADC_RES_12BIT);
-  int32_t i;
-  for (i = 0; i < 7; i++) {
-    ztimer_sleep(ZTIMER_MSEC, 1);
-    vbandgap += adc_sample(3, ADC_RES_12BIT);
-  }
-  return (int)vbandgap >> 3;
-}
-
-int bandgap_cmd(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
-
-  printf("Bandgap: %d\n", read_bandgap());
-  return 0;
-}
-
-int read_resistor(void) {
-  printf("ADC_NUMOF = %d\n", ADC_NUMOF);
-  gpio_init(GPIO_PIN(PA, 31), GPIO_OUT);
-  gpio_set(GPIO_PIN(PA, 31));
-  ztimer_sleep(ZTIMER_MSEC, 100);
-  int32_t vresistor = adc_sample(2, ADC_RES_12BIT);
-  printf("ADC_2 READ = %ld\n", vresistor);
-  //	ztimer_sleep(ZTIMER_MSEC, 400);
-  int32_t i;
-  for (i = 0; i < 31; i++) {
-    //		ztimer_sleep(ZTIMER_MSEC, 1);
-    vresistor += adc_sample(2, ADC_RES_12BIT);
-    printf("ADC_2 READ = %ld\n", vresistor);
-    //	ztimer_sleep(ZTIMER_MSEC, 400);
-  }
-  gpio_clear(GPIO_PIN(PA, 31));
-  //	saml21_cpu_debug();
-  return (int)vresistor >> 5;
-}
-
-int vresistor_cmd(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
-
-  printf("VResistor: %d\n", read_resistor());
-  return 0;
-}
 
 int read_vpanel(void) {
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
@@ -1562,8 +1516,6 @@ static const shell_command_t shell_commands[] = {
     {"vcc", "Read VCC from ADC", vcc_cmd},
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
     {"vpanel", "Read VPanel from ADC", vpanel_cmd},
-    {"vresistor", "Read VResistor from ADC", vresistor_cmd},
-    {"bandgap", "Read Internal reference voltage from ADC", bandgap_cmd},
     //    { "cputemp",   "Read Internal CPU Temperature from ADC",   cputemp_cmd
     //    },
     {"temp", "Read temperature from HDC2021", temp_cmd},

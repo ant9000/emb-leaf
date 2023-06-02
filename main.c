@@ -1268,13 +1268,13 @@ int acc_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  float x_mg, y_mg, z_mg;
-  if (read_lis2dw12(&x_mg, &y_mg, &z_mg)) {
+  float x_mg, y_mg, z_mg, t_c;
+  if (lis2dw12_read(&x_mg, &y_mg, &z_mg, &t_c)) {
     puts("ERROR: reading acceleration");
     return 0;
   }
 
-  printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f, %4.2f\n", x_mg, y_mg, z_mg, 1000.99);
+  printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f, %4.2f - Temperature [°C]: %4.2f\n", x_mg, y_mg, z_mg, 1000.99, t_c);
   return 0;
 }
 
@@ -1282,6 +1282,7 @@ typedef struct {
   float x_mg;
   float y_mg;
   float z_mg;
+  float t_c;
 } accelerometer;
 
 float calculate_g(accelerometer acc_data) {
@@ -1338,7 +1339,7 @@ int acc2_cmd(int argc, char **argv) {
 
   accelerometer data[WINDOW];
 
-  accelerometer acc_mean = {0, 0, 0};
+  accelerometer acc_mean = {0, 0, 0, 0};
   float g_force = 0;
 
   _Bool ok_variance = false;
@@ -1347,7 +1348,7 @@ int acc2_cmd(int argc, char **argv) {
 
   do {
     for (int i = 0; i < WINDOW; i++) {
-      if (read_lis2dw12(&(data[i].x_mg), &(data[i].y_mg), &(data[i].z_mg))) {
+      if (lis2dw12_read(&(data[i].x_mg), &(data[i].y_mg), &(data[i].z_mg), &(data[i].t_c))) {
         puts("ERROR: reading acceleration");
         return 0;
       }
@@ -1357,8 +1358,10 @@ int acc2_cmd(int argc, char **argv) {
     acceleration_mean(&acc_mean, data, WINDOW);
 
     for (int i = 0; i < WINDOW; i++) {
-      printf("Acceleration [mg]: %4.2f, %4.2f, %4.2f\n", data[i].x_mg,
-             data[i].y_mg, data[i].z_mg);
+      printf(
+        "Acceleration [mg]: %4.2f, %4.2f, %4.2f - Temperature [°C]: %4.2f\n",
+        data[i].x_mg, data[i].y_mg, data[i].z_mg, data[i].t_c
+      );
     }
 
     g_force = calculate_g(acc_mean);

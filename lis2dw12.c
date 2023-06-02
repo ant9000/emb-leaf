@@ -27,10 +27,10 @@ int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
 }
 
 static stmdev_ctx_t dev_ctx;
-static int16_t data_raw_acceleration[3];
+static int16_t data_raw_acceleration[3], data_raw_temperature;
 static uint8_t whoamI, rst;
 
-int read_lis2dw12(float *x_mg, float *y_mg, float *z_mg)
+int lis2dw12_read(float *x_mg, float *y_mg, float *z_mg, float *t_c)
 {
   if (whoamI != LIS2DW12_ID) {
     /* Initialize mems driver interface */
@@ -69,7 +69,6 @@ int read_lis2dw12(float *x_mg, float *y_mg, float *z_mg)
     //lis2dw12_power_mode_set(&dev_ctx, LIS2DW12_CONT_LOW_PWR_LOW_NOISE_12bit);
     /* Set Output Data Rate */
     lis2dw12_data_rate_set(&dev_ctx, LIS2DW12_XL_ODR_25Hz);
-
   }
 
   uint8_t reg = 0;
@@ -84,6 +83,10 @@ int read_lis2dw12(float *x_mg, float *y_mg, float *z_mg)
   *x_mg = lis2dw12_from_fs2_to_mg(data_raw_acceleration[0]);
   *y_mg = lis2dw12_from_fs2_to_mg(data_raw_acceleration[1]);
   *z_mg = lis2dw12_from_fs2_to_mg(data_raw_acceleration[2]);
+  /* Read temperature data */
+  data_raw_temperature=0;
+  lis2dw12_temperature_raw_get(&dev_ctx, &data_raw_temperature);
+  *t_c = lis2dw12_from_lsb_to_celsius(data_raw_temperature);
 
   return 0;
 }

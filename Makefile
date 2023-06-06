@@ -75,14 +75,15 @@ endif
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
 endif
 
-USEMODULE += ds18
-CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
+# # TEST: ds18 on Acme Sensor 1
+# USEMODULE += ds18
+# CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
 
 CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=I2C_DEV\(1\)
 
 USEMODULE += saul_default
 USEMODULE += periph_adc
-USEMODULE += periph_rtt
+USEMODULE += periph_rtc
 USEMODULE += periph_rtc_mem
 
 include $(RIOTBASE)/Makefile.include

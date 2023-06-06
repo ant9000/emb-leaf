@@ -12,7 +12,6 @@
 #include "periph/init.h"
 #include "periph/pm.h"
 #include "periph/rtc_mem.h"
-#include "periph/rtt.h"
 #include "periph/uart.h"
 #include "saml21_cpu_debug.h"
 #include "shell.h"
@@ -910,7 +909,7 @@ void poweroff_devices(void) {
 
 int sleep_cmd(int argc, char **argv) {
   if (argc < 2) {
-    puts("usage: sleep [<mode> <seconds>|pin <num>]");
+    puts("usage: sleep [<seconds>|pin <num>]");
     return -1;
   }
 
@@ -923,10 +922,13 @@ int sleep_cmd(int argc, char **argv) {
   ztimer_sleep(ZTIMER_MSEC, 1000);
   gpio_set(LED0_PIN);
 #endif
-  uint8_t sleepmode = 0;
   uint8_t extwakeOLD = 255;
+  if (argc < 1) {
+    puts("usage: sleep [<seconds>|pin <num>]");
+    return -1;
+  }
   if (strstr(argv[1], "pin") != NULL) {
-    if (argc < 3) {
+    if (argc < 2) {
       puts("usage: sleep [<seconds>|pin <num>]");
       return -1;
     }
@@ -943,28 +945,11 @@ int sleep_cmd(int argc, char **argv) {
     RSTC->WKEN.reg = 1 << extwakeOLD;
     RSTC->WKPOL.reg &= ~(1 << extwakeOLD);
   } else {
-    if (argc < 3) {
-      puts("usage: sleep [<mode> <seconds>|pin <num>]");
-      return -1;
-    }
-    sleepmode = atoi(argv[1]);
-    seconds = atoi(argv[2]);
-    if (sleepmode != 0 && sleepmode != 1 && sleepmode != 2) {
-      puts("Invalid value for sleep mode.");
-      return -1;
-    }
+    seconds = atoi(argv[1]);
     if (seconds == 0) {
       puts("Invalid value for seconds.");
       return -1;
     }
-#if 0  // superseeded by saml21_backup_mode_enter        
-        printf("Scheduling an RTC wakeup in %lu seconds.\n", seconds);
-
-        rtt_set_counter(0);
-        rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
-        // disable EXTINT wakeup
-        RSTC->WKEN.reg = 0;
-#endif
   }
   strcpy(myargv0, "radio");
   strcpy(myargv1, "off");
@@ -972,109 +957,9 @@ int sleep_cmd(int argc, char **argv) {
   lora_radio_cmd(2, (char **)myargv);
 
   puts("Now entering backup mode.");
-
-  // turn off PORT pins
-  //   size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
-  //    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
-  //    for (size_t i=0; i<num; i++) {
-  //        for (size_t j=0; j<num1; j++) {
-  //            if (extwake == 255 || i != 0 || j != extwake) {
-  //                PORT->Group[i].PINCFG[j].reg = 0;
-  //            }
-  //        }
-  //    }
-  // add pullups to console pins
-  //    for (size_t i=0; i<UART_NUMOF; i++) {
-  //        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
-  //        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
-  //    }
-  //#if defined(BOARD_SAMR34_XPRO) || defined (BOARD_LORA3A_H10)
-  //    gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
-  //    gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
-  //#endif
-
-  //    gpio_init(GPIO_PIN(PA, 9), GPIO_OUT);
-  //    gpio_clear(GPIO_PIN(PA, 9));
-  //    gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);
-  //    gpio_clear(GPIO_PIN(PA, 13));
-
-  //    gpio_init(GPIO_PIN(PA, 4), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PA, 5), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PA, 6), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PA, 7), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PA, 8), GPIO_IN_PD);
-
-  //    gpio_init(GPIO_PIN(PB, 2), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PB, 3), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PB, 22), GPIO_IN_PU);
-  //    gpio_init(GPIO_PIN(PB, 23), GPIO_IN_PU);
-
-  //   gpio_init(GPIO_PIN(PA, 30), GPIO_IN);
-
-  //    gpio_init(GPIO_PIN(PA, 27), GPIO_IN_PD);  // disable H10 internal
-  //    Sensors in backup mode gpio_init(GPIO_PIN(PA, 28), GPIO_IN_PU);  //
-  //    disable ACME Sensor 2 in backup mode gpio_init(GPIO_PIN(PA, 31),
-  //    GPIO_IN_PD);  // disable ACME Sensor 2 in backup mode
-
-  //    gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
-
   poweroff_devices();
-
-  //	saml21_cpu_debug();
-
-  saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds,
-                           1);
-
-  //    pm_set(sleepmode);
-
-  //    gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming
-  //    out of standby (pm_set(1) sleep
-
-  return 0;
-}
-
-int sleep_msec_cmd(int argc, char **argv) {
-  if (argc < 2) {
-    puts("usage: sleep [<mode> <milliseconds>]");
-    return -1;
-  }
-
-  printf("args: %s %s %s\n", argv[0], argv[1], argv[2]);
-
-  uint8_t sleepmode = 0;
-  //    uint8_t extwake = 255;
-  if (argc < 3) {
-    puts("usage: sleep [<mode> <milliseconds>]");
-    return -1;
-  }
-  sleepmode = atoi(argv[1]);
-  uint32_t mseconds = atoi(argv[2]);
-  if (sleepmode != 0 && sleepmode != 1 && sleepmode != 2) {
-    puts("Invalid value for sleep mode.");
-    return -1;
-  }
-  if (mseconds == 0) {
-    puts("Invalid value for milliseconds.");
-    return -1;
-  }
-  printf("Scheduling an RTC wakeup in %lu milliseconds.\n", mseconds);
-
-  rtt_set_counter(0);
-  rtt_set_alarm(RTT_MS_TO_TICKS(mseconds), NULL, NULL);
-  // disable EXTINT wakeup
-  RSTC->WKEN.reg = 0;
-  strcpy(myargv0, "radio");
-  strcpy(myargv1, "off");
-  myargv[2] = NULL;
-  lora_radio_cmd(2, (char **)myargv);
-
-  gpio_clear(GPIO_PIN(PA, 28));  // switch off ACME Sensor 1 power
-
-  pm_set(sleepmode);
-
-  gpio_set(GPIO_PIN(PA, 28));  // switch on ACME Sensor 1 power if coming out of
-                               // standby (pm_set(1) sleep
-
+  //saml21_cpu_debug();
+  saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, extwakeEMB, (int)seconds, 0);
   return 0;
 }
 
@@ -1084,34 +969,10 @@ int simple_sleep_cmd(int seconds) {
     return -1;
   }
 
-  rtt_set_counter(0);
-  rtt_set_alarm(RTT_SEC_TO_TICKS(seconds), NULL, NULL);
-  // disable EXTINT wakeup
-  RSTC->WKEN.reg = 0;
-
   puts("Now entering backup mode.");
-#if 0
-    // turn off PORT pins
-    size_t num = sizeof(PORT->Group)/sizeof(PortGroup);
-    size_t num1 = sizeof(PORT->Group[0].PINCFG)/sizeof(PORT_PINCFG_Type);
-    for (size_t i=0; i<num; i++) {
-        for (size_t j=0; j<num1; j++) {
-            PORT->Group[i].PINCFG[j].reg = 0;
-        }
-    }
-    // add pullups to console pins
-    for (size_t i=0; i<UART_NUMOF; i++) {
-        gpio_init(uart_config[i].rx_pin, GPIO_IN_PU);
-        gpio_init(uart_config[i].tx_pin, GPIO_IN_PU);
-    }
-#endif
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
-  gpio_init(TCXO_PWR_PIN, GPIO_IN_PD);
-  gpio_init(TX_OUTPUT_SEL_PIN, GPIO_IN_PD);
-#endif
 
-  pm_set(0);
-
+  saml21_extwake_t wake = { .pin=EXTWAKE_NONE };
+  saml21_backup_mode_enter(RADIO_OFF_NOT_REQUESTED, wake, (int)seconds, 0);
   return 0;
 }
 
@@ -1514,7 +1375,6 @@ static const shell_command_t shell_commands[] = {
     {"vreg", "Get/Set voltage regulator", vreg_cmd},
     {"baud", "Get/Set console baud rate", baud_cmd},
     {"sleep", "Enter power save modes", sleep_cmd},
-    {"msecsleep", "Enter sleep mode msec", sleep_msec_cmd},
     {"debug", "Show SAML21 peripherals config", debug_cmd},
     {"vcc", "Read VCC from ADC", vcc_cmd},
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)

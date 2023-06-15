@@ -1521,6 +1521,10 @@ static void _event_cb(netdev_t *dev, netdev_event_t event) {
         sx127x_set_sleep(&sx127x);
         break;
 
+      case NETDEV_EVENT_LINK_UP:
+        puts("Network interface up");
+        break;
+
       default:
         printf("Unexpected netdev event received: %d\n", event);
 #ifdef BOARD_LORA3A_SENSOR1

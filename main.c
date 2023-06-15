@@ -1564,6 +1564,11 @@ int main(void) {
   printf("RTC mem size: %d\n", len);
   //    saml21_cpu_debug();
 
+  if (IS_USED(MODULE_SENSEAIR)) {
+      extern void auto_init_senseair(void);
+      auto_init_senseair();
+  }
+
 #ifdef MODULE_SX1276
   sx127x.params = sx127x_params[0];
   netdev_t *netdev = (netdev_t *)&sx127x;

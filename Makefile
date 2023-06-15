@@ -43,6 +43,7 @@ ifeq ($(TEST1_MODE), 1)
 endif
 
 ifeq ($(BOARD),lora3a-h10)
+  USEMODULE += hdc3020
 # USEPKG += cryptoauthlib
 # CFLAGS += -DATCA_PARAM_ADDR=0xb2
 # # TODO:

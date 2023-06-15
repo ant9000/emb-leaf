@@ -1569,6 +1569,11 @@ int main(void) {
       auto_init_senseair();
   }
 
+  if (IS_USED(MODULE_HDC3020)) {
+      extern void auto_init_hdc3020(void);
+      auto_init_hdc3020();
+  }
+
 #ifdef MODULE_SX1276
   sx127x.params = sx127x_params[0];
   netdev_t *netdev = (netdev_t *)&sx127x;

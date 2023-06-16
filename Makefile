@@ -53,7 +53,7 @@ ifeq ($(BOARD),lora3a-h10)
 ifeq ($(BME688_ACME1), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DENABLE_ACME1=MODE_I2C -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=1 -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DENABLE_ACME1=MODE_I2C -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=ACME1_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 1 is on at boot only if requested
@@ -61,7 +61,7 @@ endif
 ifeq ($(BME688_ACME2), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DENABLE_ACME2=MODE_I2C -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=2 -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DENABLE_ACME2=MODE_I2C -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=ACME2_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 2 is on at boot only if requested
@@ -70,7 +70,7 @@ endif
 
 # # TEST: lis2dh12 on Acme Sensor 2
 # USEMODULE += lis2dh12_i2c
-# CFLAGS += -DLIS2DH12_PARAM_I2C=2 -DLIS2DH12_PARAM_INT_PIN1=GPIO_PIN\(PA,6\)
+# CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DH12_PARAM_I2C=ACME2_I2C_DEV -DLIS2DH12_PARAM_INT_PIN1=GPIO_PIN\(PA,6\)
 # # TODO:
 # # - change to RIOT/drivers/lis2dh12/lis2dh12.c line 471: we need int on FALLING edge
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
@@ -80,10 +80,10 @@ endif
 # USEMODULE += ds18
 # CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
 
-CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=I2C_DEV\(1\)
+CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=ACME2_I2C_DEV
 
 USEMODULE += senseair
-CFLAGS += -DENABLE_ACME1=MODE_I2C -DSENSEAIR_I2C_DEV=I2C_DEV\(1\) -DSENSEAIR_ENABLE_PIN=GPIO_PIN\(PB,23\)
+CFLAGS += -DENABLE_ACME1=MODE_I2C -DSENSEAIR_I2C_DEV=ACME1_I2C_DEV -DSENSEAIR_ENABLE_PIN=GPIO_PIN\(PB,23\)
 
 CFLAGS += -DTHREAD_STACKSIZE_IDLE=THREAD_STACKSIZE_DEFAULT
 

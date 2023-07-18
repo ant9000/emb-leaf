@@ -988,9 +988,11 @@ int vcc_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  int32_t vcc = adc_sample(0, ADC_RES_12BIT);
-  printf("VCC: %ld  VCC rescaled: %ld,\n", vcc,
-         vcc * 4000 / 4095);  // rescaled vcc/4 to 1V=4095 counts
+  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
+  printf(
+    "VCC: %ld, VCC rescaled: %ld\n",
+     vcc, (vcc * 4 * 1000) >> 16
+  );  // rescaled vcc/4 to 1V=65535 counts
   return 0;
 }
 
@@ -1021,28 +1023,24 @@ int cputemp_cmd(int argc, char **argv)
 }
 #endif
 
-int read_vpanel(void) {
+int32_t read_vpanel(void) {
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 27));
   ztimer_sleep(ZTIMER_MSEC, 10);
-  int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
-  int32_t i;
-  for (i = 0; i < 7; i++) {
-    ztimer_sleep(ZTIMER_MSEC, 1);
-    vpanel += adc_sample(1, ADC_RES_12BIT);
-  }
+  int32_t vpanel = adc_sample(1, ADC_RES_16BIT);
   gpio_clear(GPIO_PIN(PA, 27));
-  return (int)vpanel >> 3;
+  return vpanel;
 }
 
 int vpanel_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  printf(
-      "VPanel: %d\n",
-      read_vpanel() * 3933 /
-          4095);  // adapted to real resistor partition factor (75k over 220k)
+  int32_t vpanel = read_vpanel();
+
+  printf("VPanel: %ld, VPanel rescaled %ld\n",
+      vpanel, (vpanel * (220 + 75) / 75 * 1000) >> 16
+  );  // adapted to real resistor partition factor (75k over 220k)
   return 0;
 }
 
@@ -1080,11 +1078,11 @@ int hum_cmd(int argc, char **argv) {
 #endif
 
 #ifdef BOARD_LORA3A_SENSOR1
-int read_vpanel(void) {
+int32_t read_vpanel(void) {
   gpio_init(GPIO_PIN(PA, 19), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 19));
   ztimer_sleep(ZTIMER_MSEC, 10);
-  int32_t vpanel = adc_sample(1, ADC_RES_12BIT);
+  int32_t vpanel = adc_sample(1, ADC_RES_16BIT);
   gpio_clear(GPIO_PIN(PA, 19));
   return (int)vpanel;
 }
@@ -1093,7 +1091,7 @@ int vpanel_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  printf("VPanel: %d\n", read_vpanel());
+  printf("VPanel: %ld\n", read_vpanel());
   return 0;
 }
 
@@ -1322,14 +1320,14 @@ int tx_data(int argc, char **argv) {
     dst = atoi(argv[1]) & 0xffff;
   }
   // read vcc now
-  int32_t vcc = adc_sample(0, ADC_RES_12BIT);
+  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
 
   // read vpanel and temp and hum now
 #ifdef BOARD_LORA3A_H10
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 27));
 #endif
-  int myvpanel = read_vpanel();
+  int32_t myvpanel = read_vpanel();
   double temp = 0, hum = 0;
   if (read_hdc(&temp, &hum)) {
     puts("HDC2021 is unreadable!");
@@ -1338,7 +1336,7 @@ int tx_data(int argc, char **argv) {
   gpio_clear(GPIO_PIN(PA, 27));
 #endif
   strcpy(myargv0, "send_cmd");
-  sprintf(myargv1, "prova vcc=%ld, vpanel=%d, temp=%.2f, hum=%.2f", vcc,
+  sprintf(myargv1, "prova vcc=%ld, vpanel=%ld, temp=%.2f, hum=%.2f", vcc,
           myvpanel, temp, hum);
   sprintf(myargv2, "%d", dst);
   myargv[2] = myargv2;

@@ -25,6 +25,7 @@ USEMODULE += ztimer_usec
 USEMODULE += periph_i2c
 USEMODULE += saml21_cpu_debug
 USEMODULE += saml21_backup_mode
+USEMODULE += saul_adc
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure

@@ -1566,6 +1566,11 @@ int main(void) {
   printf("RTC mem size: %d\n", len);
   //    saml21_cpu_debug();
 
+  if (IS_USED(MODULE_H10_ADC)) {
+      extern void auto_init_h10_adc(void);
+      auto_init_h10_adc();
+  }
+
   if (IS_USED(MODULE_SENSEAIR)) {
       extern void auto_init_senseair(void);
       auto_init_senseair();

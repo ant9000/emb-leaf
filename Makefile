@@ -11,8 +11,10 @@ RADIO ?= 1
 PORT ?= /dev/ttyUSB0
 POWER_PROFILING ?= 0
 TEST1_MODE ?= 0
+BME688_ACME0 ?= 0
 BME688_ACME1 ?= 0
 BME688_ACME2 ?= 0
+USB ?= 0
 
 USEMODULE += od
 USEMODULE += od_string
@@ -52,6 +54,14 @@ ifeq ($(BOARD),lora3a-h10)
 # # - understand why we (0x59 << 1) is needed as address
 # # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
 
+ifeq ($(BME688_ACME0), 1)
+  USEMODULE += bme680_fp bme680_i2c
+  USEMODULE += periph_i2c_reconfigure
+  CFLAGS += -DBME680_PARAM_I2C_DEV=ACME0_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
+# # TODO:
+# # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
+# # - 11/9/22 now power acme sensor 1 is on at boot only if requested
+endif
 ifeq ($(BME688_ACME1), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
@@ -82,7 +92,7 @@ endif
 # USEMODULE += ds18
 # CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
 
-CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=ACME2_I2C_DEV
+#CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=ACME2_I2C_DEV
 
 #USEMODULE += senseair
 #CFLAGS += -DENABLE_ACME1=MODE_I2C -DSENSEAIR_I2C_DEV=ACME1_I2C_DEV -DSENSEAIR_ENABLE_PIN=GPIO_PIN\(PB,23\)
@@ -93,5 +103,18 @@ USEMODULE += saul_default
 USEMODULE += periph_adc
 USEMODULE += periph_rtc
 USEMODULE += periph_rtc_mem
+
+ifeq ($(USB), 1)
+  USEMODULE += stdio_cdc_acm
+  TERMDELAYDEPS := $(filter reset flash flash-only, $(MAKECMDGOALS))
+  ifneq (,$(TERMDELAYDEPS))
+    # By default, add 2 seconds delay before opening terminal: this is required
+    # when opening the terminal right after flashing. In this case, the stdio
+    # over USB needs some time after reset before being ready.
+    TERM_DELAY ?= 2
+    TERMDEPS += term-delay
+  endif
+endif
+
 
 include $(RIOTBASE)/Makefile.include

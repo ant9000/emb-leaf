@@ -132,71 +132,81 @@ int lora_radio_cmd(int argc, char **argv) {
 }
 
 int lora_setup_cmd(int argc, char **argv) {
-  if (argc < 4) {
-    puts(
-        "usage: setup "
-        "<bandwidth (125, 250, 500)> "
-        "<spreading factor (7..12)> "
-        "<code rate (5..8)>");
-    return -1;
-  }
-
+  int retval = 0;	
   if (!sx127x_power) {
     puts("Radio is off");
     return -1;
   }
 
-  /* Check bandwidth value */
-  int bw = atoi(argv[1]);
-  uint8_t lora_bw;
-  switch (bw) {
-    case 125:
-      puts("setup: setting 125KHz bandwidth");
-      lora_bw = LORA_BW_125_KHZ;
-      break;
+  if (argc < 4) {
+    puts(
+        "usage: setup "
+        "<bandwidth (125, 250, 500)> "
+        "<spreading factor (7..12)> "
+        "<code rate (5..8)>\n"); 
+    retval = -1;
+  } else {
+	  /* Check bandwidth value */
+	  int bw = atoi(argv[1]);
+	  uint8_t lora_bw;
+	  switch (bw) {
+		case 125:
+		  puts("setup: setting 125KHz bandwidth");
+		  lora_bw = LORA_BW_125_KHZ;
+		  break;
 
-    case 250:
-      puts("setup: setting 250KHz bandwidth");
-      lora_bw = LORA_BW_250_KHZ;
-      break;
+		case 250:
+		  puts("setup: setting 250KHz bandwidth");
+		  lora_bw = LORA_BW_250_KHZ;
+		  break;
 
-    case 500:
-      puts("setup: setting 500KHz bandwidth");
-      lora_bw = LORA_BW_500_KHZ;
-      break;
+		case 500:
+		  puts("setup: setting 500KHz bandwidth");
+		  lora_bw = LORA_BW_500_KHZ;
+		  break;
 
-    default:
-      puts(
-          "[Error] setup: invalid bandwidth value given, "
-          "only 125, 250 or 500 allowed.");
-      return -1;
+		default:
+		  puts(
+			  "[Error] setup: invalid bandwidth value given, "
+			  "only 125, 250 or 500 allowed.");
+		  return -1;
+	  }
+
+	  /* Check spreading factor value */
+	  uint8_t lora_sf = atoi(argv[2]);
+	  if (lora_sf < 7 || lora_sf > 12) {
+		puts("[Error] setup: invalid spreading factor value given");
+		return -1;
+	  }
+
+	  /* Check coding rate value */
+	  int cr = atoi(argv[3]);
+	  if (cr < 5 || cr > 8) {
+		puts("[Error ]setup: invalid coding rate value given");
+		return -1;
+	  }
+	  uint8_t lora_cr = (uint8_t)(cr - 4);
+
+	  /* Configure radio device */
+	  netdev_t *netdev = (netdev_t *)&sx127x;
+	  netdev->driver->set(netdev, NETOPT_BANDWIDTH, &lora_bw, sizeof(lora_bw));
+	  netdev->driver->set(netdev, NETOPT_SPREADING_FACTOR, &lora_sf,
+						  sizeof(lora_sf));
+	  netdev->driver->set(netdev, NETOPT_CODING_RATE, &lora_cr, sizeof(lora_cr));
+
+	  puts("[Info] setup: configuration set with success");
   }
+  uint8_t txpower = sx127x_get_tx_power(&sx127x);
+  uint32_t channel = sx127x_get_channel(&sx127x);    
+  uint16_t bandwidth = sx127x_get_bandwidth(&sx127x);
+  if (bandwidth==0) bandwidth = 125; else if (bandwidth==1) bandwidth=250; else if (bandwidth==2) bandwidth=500; else bandwidth=999;
+  uint8_t sf =sx127x_get_spreading_factor(&sx127x);
+  uint8_t mycr = sx127x_get_coding_rate(&sx127x);
 
-  /* Check spreading factor value */
-  uint8_t lora_sf = atoi(argv[2]);
-  if (lora_sf < 7 || lora_sf > 12) {
-    puts("[Error] setup: invalid spreading factor value given");
-    return -1;
-  }
+  printf("Radio Status: Radio %s, txPower=%d Boost=%d\n", sx127x_power?"ON":"OFF", txpower, sx127x.params.paselect);   
+  printf("Radio Status: Channel=%ld BandWidth=%d SpreadingFactor=%d CodingRate=%d\n", channel, bandwidth, sf, mycr+4);   
 
-  /* Check coding rate value */
-  int cr = atoi(argv[3]);
-  if (cr < 5 || cr > 8) {
-    puts("[Error ]setup: invalid coding rate value given");
-    return -1;
-  }
-  uint8_t lora_cr = (uint8_t)(cr - 4);
-
-  /* Configure radio device */
-  netdev_t *netdev = (netdev_t *)&sx127x;
-  netdev->driver->set(netdev, NETOPT_BANDWIDTH, &lora_bw, sizeof(lora_bw));
-  netdev->driver->set(netdev, NETOPT_SPREADING_FACTOR, &lora_sf,
-                      sizeof(lora_sf));
-  netdev->driver->set(netdev, NETOPT_CODING_RATE, &lora_cr, sizeof(lora_cr));
-
-  puts("[Info] setup: configuration set with success");
-
-  return 0;
+  return retval;
 }
 
 #if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
@@ -236,7 +246,7 @@ int boost_cmd(int argc, char **argv) {
         boost = !boost;
       }
     }
-    printf("Boost mode %s\n", boost ? "set" : "cleared");
+    printf("Boost mode %s, gpio_write(PA13)<-%d\n", boost ? "set" : "cleared", !sx127x.params.paselect);
   } else {
     puts("usage: boost <get|set>");
     return -1;
@@ -317,8 +327,6 @@ int send_cmd(int argc, char **argv) {
 
   iolist_t iolist = {
       .iol_next = &payload, .iol_base = header, .iol_len = (size_t)10};
-  gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to PA_BOOST
-  gpio_clear(GPIO_PIN(PA, 13));
 
   netdev_t *netdev = (netdev_t *)&sx127x;
   if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
@@ -327,6 +335,110 @@ int send_cmd(int argc, char **argv) {
     emb_counter++;
   }
 
+  return 0;
+}
+
+int send_cw_cmd(int argc, char **argv) {
+  uint16_t dst = 0xffff;  // broadcast by default
+
+  if (argc <= 1) {
+    puts("usage: send numpackets");
+    return -1;
+  }
+
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
+  int numpackets = atoi(argv[1]);
+  printf("sending \"%d\" packets (100 bytes each)", numpackets);
+  char cwstring[] = "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
+  iolist_t payload = {.iol_base = cwstring, .iol_len = (strlen(cwstring) + 1)};
+
+  char header[10] = {
+      0xe0,
+      0x00,
+      emb_counter & 0xff,
+      (emb_counter >> 8) & 0xff,
+      emb_network & 0xff,
+      (emb_network >> 8) & 0xff,
+      dst & 0xff,
+      (dst >> 8) & 0xff,
+      emb_address & 0xff,
+      (emb_address >> 8) & 0xff,
+  };
+
+  iolist_t iolist = {
+      .iol_next = &payload, .iol_base = header, .iol_len = (size_t)10};
+
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  int i; 
+  for (i=0; i<numpackets; i++) {
+//   if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
+//      puts("Cannot send: radio is still transmitting");
+//    } else {
+//      emb_counter++;
+//    }
+    while (netdev->driver->send(netdev, &iolist) == -ENOTSUP);
+    printf("sending packet %d of %d\n",i,numpackets);
+    emb_counter++;
+  }
+  return 0;
+}
+
+int beacon_cmd(int argc, char **argv) {
+  uint16_t dst = 0xffff;  // broadcast by default
+
+  if (argc <= 2) {
+    puts("usage: beacon numpackets delay(s). numpackets=0 -> forever");
+    return -1;
+  }
+
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
+  int numpackets = atoi(argv[1]);
+  int delay = atoi(argv[2]);
+  printf("sending \"%d\" packets (10 bytes each) with %d seconds delay", numpackets, delay);
+  char cwstring[] = "0123456789";
+  iolist_t payload = {.iol_base = cwstring, .iol_len = (strlen(cwstring) + 1)};
+
+  char header[10] = {
+      0xe0,
+      0x00,
+      emb_counter & 0xff,
+      (emb_counter >> 8) & 0xff,
+      emb_network & 0xff,
+      (emb_network >> 8) & 0xff,
+      dst & 0xff,
+      (dst >> 8) & 0xff,
+      emb_address & 0xff,
+      (emb_address >> 8) & 0xff,
+  };
+
+  iolist_t iolist = {
+      .iol_next = &payload, .iol_base = header, .iol_len = (size_t)10};
+
+  netdev_t *netdev = (netdev_t *)&sx127x;
+  int i, j;
+  if (numpackets == 0) j=1; else j=numpackets;
+  for (i=0; i<j; i++) {
+//   if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
+//      puts("Cannot send: radio is still transmitting");
+//    } else {
+//      emb_counter++;
+//    }
+	while (netdev->driver->send(netdev, &iolist) == -ENOTSUP);
+	if (numpackets == 0) {
+		j=i+2;
+		printf("sending packet %d of unlimited\n",i);
+	} else {	
+		printf("sending packet %d of %d\n",i,numpackets);
+	}
+	emb_counter++;
+	ztimer_sleep(ZTIMER_MSEC, 1000*delay);
+  }
   return 0;
 }
 
@@ -1360,6 +1472,8 @@ static const shell_command_t shell_commands[] = {
 #endif
     {"txpower", "Get/Set transmission power", txpower_cmd},
     {"send", "Send string", send_cmd},
+    {"send_cw", "Send continuos packets", send_cw_cmd},
+    {"beacon", "Send continuous packets with delay", beacon_cmd},
     {"listen", "Listen for packets", listen_cmd},
     {"sniff", "Get/Set packet sniffing mode", sniff_cmd},
 #if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)

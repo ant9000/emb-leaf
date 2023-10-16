@@ -386,62 +386,6 @@ int send_cw_cmd(int argc, char **argv) {
   return 0;
 }
 
-int beacon_cmd(int argc, char **argv) {
-  uint16_t dst = 0xffff;  // broadcast by default
-
-  if (argc <= 2) {
-    puts("usage: beacon numpackets delay(s). numpackets=0 -> forever");
-    return -1;
-  }
-
-  if (!sx127x_power) {
-    puts("Radio is off");
-    return -1;
-  }
-  int numpackets = atoi(argv[1]);
-  int delay = atoi(argv[2]);
-  printf("sending \"%d\" packets (10 bytes each) with %d seconds delay", numpackets, delay);
-  char cwstring[] = "0123456789";
-  iolist_t payload = {.iol_base = cwstring, .iol_len = (strlen(cwstring) + 1)};
-
-  char header[10] = {
-      0xe0,
-      0x00,
-      emb_counter & 0xff,
-      (emb_counter >> 8) & 0xff,
-      emb_network & 0xff,
-      (emb_network >> 8) & 0xff,
-      dst & 0xff,
-      (dst >> 8) & 0xff,
-      emb_address & 0xff,
-      (emb_address >> 8) & 0xff,
-  };
-
-  iolist_t iolist = {
-      .iol_next = &payload, .iol_base = header, .iol_len = (size_t)10};
-
-  netdev_t *netdev = (netdev_t *)&sx127x;
-  int i, j;
-  if (numpackets == 0) j=1; else j=numpackets;
-  for (i=0; i<j; i++) {
-//   if (netdev->driver->send(netdev, &iolist) == -ENOTSUP) {
-//      puts("Cannot send: radio is still transmitting");
-//    } else {
-//      emb_counter++;
-//    }
-	while (netdev->driver->send(netdev, &iolist) == -ENOTSUP);
-	if (numpackets == 0) {
-		j=i+2;
-		printf("sending packet %d of unlimited\n",i);
-	} else {	
-		printf("sending packet %d of %d\n",i,numpackets);
-	}
-	emb_counter++;
-	ztimer_sleep(ZTIMER_MSEC, 1000*delay);
-  }
-  return 0;
-}
-
 int listen_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -1203,7 +1147,7 @@ int vpanel_cmd(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  printf("VPanel: %ld\n", read_vpanel());
+  printf("VPanel: %ld\n", (read_vpanel() * (220 + 75) / 75 * 1000) >> 16);
   return 0;
 }
 
@@ -1419,6 +1363,66 @@ int persist_cmd(int argc, char **argv) {
   return 0;
 }
 
+int beacon_cmd(int argc, char **argv) {
+  uint16_t dst = 0xffff;  // broadcast by default
+
+  if (argc <= 2) {
+    puts("usage: beacon numpackets delay(s). numpackets=0 -> forever");
+    return -1;
+  }
+
+  if (!sx127x_power) {
+    puts("Radio is off");
+    return -1;
+  }
+  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
+  printf(
+    "VCC: %ld, VCC rescaled: %ld\n",
+     vcc, (vcc * 4 * 1000) >> 16
+  );  // rescaled vcc/4 to 1V=65535 counts
+  int numpackets = atoi(argv[1]);
+  int delay = atoi(argv[2]);
+  printf("sending \"%d\" packets (10 bytes each) with %d seconds delay with vcc value", numpackets, delay);
+  int i, j;
+  if (numpackets == 0) j=1; else j=numpackets;
+  for (i=1; i<=j; i++) {
+	  // read vcc now
+	  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
+
+	  // read vpanel and temp and hum now
+#ifdef BOARD_LORA3A_H10
+	  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+	  gpio_set(GPIO_PIN(PA, 27));
+#endif
+	  int32_t myvpanel = (read_vpanel() * (220 + 75) / 75 * 1000) >> 16;
+	  double temp = 0, hum = 0;
+	  if (read_hdc(&temp, &hum)) {
+		puts("HDC3020 is unreadable!");
+	  }
+#ifdef BOARD_LORA3A_H10
+	  gpio_clear(GPIO_PIN(PA, 27));
+#endif
+	  strcpy(myargv0, "send_cmd");
+	  sprintf(myargv1, "vcc=%ld, vpanel=%ld, temp=%.2f, hum=%.2f", (vcc * 4 * 1000) >> 16,
+			  myvpanel, temp, hum);
+	  sprintf(myargv2, "%d", dst);
+	  myargv[2] = myargv2;
+	  myargv[3] = NULL;
+	  send_cmd(3, (char **)myargv);
+	  
+	if (numpackets == 0) {
+		j=i+2;
+		printf("sending packet %d of unlimited\n",i);
+	} else {	
+		printf("sending packet %d of %d\n",i,numpackets);
+	}
+	emb_counter++;
+	ztimer_sleep(ZTIMER_MSEC, 1000*delay);
+  }
+  return 0;
+}
+
+
 #if defined(BOARD_LORA3A_H10) || defined(BOARD_LORA3A_SENSOR1)
 int tx_data(int argc, char **argv) {
   uint16_t dst = 0xffff;  // broadcast by default
@@ -1439,7 +1443,7 @@ int tx_data(int argc, char **argv) {
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 27));
 #endif
-  int32_t myvpanel = read_vpanel();
+  int32_t myvpanel = (read_vpanel() * (220 + 75) / 75 * 1000) >> 16;
   double temp = 0, hum = 0;
   if (read_hdc(&temp, &hum)) {
     puts("HDC2021 is unreadable!");
@@ -1448,7 +1452,7 @@ int tx_data(int argc, char **argv) {
   gpio_clear(GPIO_PIN(PA, 27));
 #endif
   strcpy(myargv0, "send_cmd");
-  sprintf(myargv1, "prova vcc=%ld, vpanel=%ld, temp=%.2f, hum=%.2f", vcc,
+  sprintf(myargv1, "vcc=%ld, vpanel=%ld, temp=%.2f, hum=%.2f", (vcc * 4 * 1000) >> 16,
           myvpanel, temp, hum);
   sprintf(myargv2, "%d", dst);
   myargv[2] = myargv2;

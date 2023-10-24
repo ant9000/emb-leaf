@@ -78,9 +78,9 @@ static bool emb_sniff = false;
   { .pin = EXTWAKE_PIN6, .polarity = EXTWAKE_HIGH, .flags = EXTWAKE_IN_PU }
 static saml21_extwake_t extwakeEMB = EXTWAKE;
 
-char myargv0[10];
+char myargv0[20];
 char myargv1[64];
-char myargv2[10];
+char myargv2[20];
 char *myargv[4] = {
     myargv0, myargv1, myargv2,
     NULL};  // allocate space for an argv like structure to be used to call RIOT
@@ -1678,6 +1678,54 @@ void *_recv_thread(void *arg) {
 }
 #endif
 
+void master_beacon(int delay) {
+
+  strcpy(myargv0, "lora_radio_cmd");
+  sprintf(myargv1, "on");
+  myargv[2] = NULL;
+  lora_radio_cmd(2, (char **)myargv);
+
+  strcpy(myargv0, "boost_cmd");
+  sprintf(myargv1, "set");
+  sprintf(myargv2, "off");
+  myargv[3] = NULL;
+  boost_cmd(3, (char **)myargv);
+
+
+  // read vcc now
+  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
+
+  // read vpanel and temp and hum now
+#ifdef BOARD_LORA3A_H10
+  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
+  gpio_set(GPIO_PIN(PA, 27));
+#endif
+  int32_t myvpanel = (read_vpanel() * (220 + 75) / 75 * 1000) >> 16;
+  double temp = 0, hum = 0;
+  if (read_hdc(&temp, &hum)) {
+    puts("HDC2021 is unreadable!");
+  }
+#ifdef BOARD_LORA3A_H10
+  gpio_clear(GPIO_PIN(PA, 27));
+#endif
+  uint16_t dst = 0xffff;  // broadcast by default
+
+  strcpy(myargv0, "send_cmd");
+  sprintf(myargv1, "vcc=%ld, vpanel=%ld, temp=%.2f, hum=%.2f", (vcc * 4 * 1000) >> 16,
+          myvpanel, temp, hum);
+  sprintf(myargv2, "%d", dst);
+  myargv[2] = myargv2;
+  myargv[3] = NULL;
+  send_cmd(3, (char **)myargv);
+
+  strcpy(myargv0, "lora_radio_cmd");
+  sprintf(myargv1, "off");
+  myargv[2] = NULL;
+  lora_radio_cmd(2, (char **)myargv);
+
+  simple_sleep_cmd(delay);
+}
+
 int main(void) {
   puts("\n\n\n");
   size_t len = rtc_mem_size();
@@ -1761,6 +1809,9 @@ int main(void) {
   listen_cmd(0, 0);  // start in listen mode to accept transmissions from nodes
 #endif
 #endif
+  
+//  master_beacon(60);
+ 
   shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
   return 0;

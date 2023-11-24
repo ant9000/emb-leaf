@@ -233,6 +233,9 @@ int boost_cmd(int argc, char **argv) {
       return -1;
     }
     bool boost = sx127x.params.paselect == SX127X_PA_BOOST;
+// when boost value is changed you need to rewrite the txpower value otherwise the transmission is compromised (low dBm received)
+    uint8_t txpower = sx127x_get_tx_power(&sx127x);
+
     if (strstr(argv[2], "on") != NULL) {
       if (!boost) {
         sx127x.params.paselect = SX127X_PA_BOOST;
@@ -246,6 +249,9 @@ int boost_cmd(int argc, char **argv) {
         boost = !boost;
       }
     }
+    // rewrite txpower value
+    sx127x_set_tx_power(&sx127x, txpower);
+
     printf("Boost mode %s, gpio_write(PA13)<-%d\n", boost ? "set" : "cleared", !sx127x.params.paselect);
   } else {
     puts("usage: boost <get|set>");
@@ -306,6 +312,9 @@ int send_cmd(int argc, char **argv) {
   if (argc == 3) {
     dst = atoi(argv[2]) & 0xffff;
   }
+
+// set PA13 accordingly to the boost desired state: boost: PA13=0; RFO: PA13=1;
+  gpio_write(TX_OUTPUT_SEL_PIN, !sx127x.params.paselect);
 
   printf("sending \"%s\" payload (%u bytes) to dst %04x\n", argv[1],
          (unsigned)strlen(argv[1]) + 1, dst);

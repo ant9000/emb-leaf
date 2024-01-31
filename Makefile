@@ -1,5 +1,5 @@
 APPLICATION = emb-leaf
-BOARD ?= lora3a-h10
+BOARD ?= berta-h10
 RIOTBASE ?= $(CURDIR)/../RIOT
 LORA3ABASE ?= $(CURDIR)/../lora3a-boards
 EXTERNAL_BOARD_DIRS=$(LORA3ABASE)/boards
@@ -14,6 +14,9 @@ TEST1_MODE ?= 0
 BME688_ACME0 ?= 0
 BME688_ACME1 ?= 0
 BME688_ACME2 ?= 0
+DS18_ACME1 ?= 0
+SENSEAIR_ACME1 ?= 0
+SPS30_ACME1 ?= 0
 USB ?= 0
 
 USEMODULE += od
@@ -29,6 +32,8 @@ USEMODULE += periph_i2c
 USEMODULE += saml21_cpu_debug
 USEMODULE += saml21_backup_mode
 USEMODULE += h10_adc
+
+CFLAGS += -DACME0_BUS_MODE=MODE_I2C
 
 ifeq ($(RADIO), 1)
   USEMODULE += periph_spi_reconfigure
@@ -65,7 +70,7 @@ endif
 ifeq ($(BME688_ACME1), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DENABLE_ACME1=MODE_I2C -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=ACME1_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DACME1_BUS_MODE=MODE_I2C -DBME688_ACME1=1 -DBME680_PARAM_I2C_DEV=ACME1_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 1 is on at boot only if requested
@@ -73,7 +78,7 @@ endif
 ifeq ($(BME688_ACME2), 1)
   USEMODULE += bme680_fp bme680_i2c
   USEMODULE += periph_i2c_reconfigure
-  CFLAGS += -DENABLE_ACME2=MODE_I2C -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=ACME2_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
+  CFLAGS += -DACME2_BUS_MODE=MODE_I2C -DBME688_ACME2=1 -DBME680_PARAM_I2C_DEV=ACME2_I2C_DEV -DBME680_PARAM_I2C_ADDR=0x76
 # # TODO:
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_bme680.c
 # # - 11/9/22 now power acme sensor 2 is on at boot only if requested
@@ -82,20 +87,31 @@ endif
 
 # # TEST: lis2dh12 on Acme Sensor 2
 # USEMODULE += lis2dh12_i2c
-# CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DH12_PARAM_I2C=ACME2_I2C_DEV -DLIS2DH12_PARAM_INT_PIN1=GPIO_PIN\(PA,6\)
+# CFLAGS += -DACME2_BUS_MODE=MODE_I2C -DLIS2DH12_PARAM_I2C=ACME2_I2C_DEV -DLIS2DH12_PARAM_INT_PIN1=GPIO_PIN\(PA,6\)
 # # TODO:
 # # - change to RIOT/drivers/lis2dh12/lis2dh12.c line 471: we need int on FALLING edge
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
 endif
 
-# # TEST: ds18 on Acme Sensor 1
-# USEMODULE += ds18
-# CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
+# TEST: ds18 on Acme Sensor 1
+ifeq ($(DS18_ACME1), 1)
+  USEMODULE += ds18
+  CFLAGS += -DDS18_PARAM_PIN=GPIO_PIN\(PB,22\) -DDS18_PARAM_PULL=GPIO_OD_PU
+endif
 
-#CFLAGS += -DENABLE_ACME2=MODE_I2C -DLIS2DW12_I2C_DEVICE=ACME2_I2C_DEV
+#CFLAGS += -DACME2_BUS_MODE=MODE_I2C -DLIS2DW12_I2C_DEVICE=ACME2_I2C_DEV
 
-#USEMODULE += senseair
-#CFLAGS += -DENABLE_ACME1=MODE_I2C -DSENSEAIR_I2C_DEV=ACME1_I2C_DEV -DSENSEAIR_ENABLE_PIN=GPIO_PIN\(PB,23\)
+# TEST: Senseair on Acme Sensor 1
+ifeq ($(SENSEAIR_ACME1), 1)
+  USEMODULE += senseair
+  CFLAGS += -DACME1_BUS_MODE=MODE_I2C -DSENSEAIR_I2C_DEV=ACME1_I2C_DEV -DSENSEAIR_ENABLE_PIN=GPIO_PIN\(PB,23\)
+endif
+
+# TEST: SPS30 on Acme Sensor 1
+ifeq ($(SPS30_ACME1), 1)
+  USEMODULE += sps30
+  CFLAGS += -DACME1_BUS_MODE=MODE_I2C -DPARAM_SPS30_I2C=ACME1_I2C_DEV -DI2C0_SPEED=I2C_SPEED_NORMAL
+endif
 
 CFLAGS += -DTHREAD_STACKSIZE_IDLE=THREAD_STACKSIZE_DEFAULT
 

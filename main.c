@@ -98,7 +98,7 @@ int lora_radio_cmd(int argc, char **argv) {
       puts("Radio already on");
       return -1;
     }
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_BERTA_H10)
     gpio_init(TCXO_PWR_PIN, GPIO_OUT);
     gpio_set(TCXO_PWR_PIN);
     gpio_init(TX_OUTPUT_SEL_PIN, GPIO_OUT);
@@ -119,7 +119,7 @@ int lora_radio_cmd(int argc, char **argv) {
     sx127x_set_sleep(&sx127x);
     spi_release(sx127x.params.spi);
     spi_deinit_pins(sx127x.params.spi);
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_BERTA_H10)
     gpio_clear(TCXO_PWR_PIN);
     gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif
@@ -209,7 +209,7 @@ int lora_setup_cmd(int argc, char **argv) {
   return retval;
 }
 
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_BERTA_H10)
 int boost_cmd(int argc, char **argv) {
   if (argc < 2) {
     puts("usage: boost <get|set>");
@@ -412,7 +412,7 @@ int listen_cmd(int argc, char **argv) {
 #ifdef BOARD_LORA3A_SENSOR1
   const uint32_t timeout = 1000;
 #endif
-#if defined(BOARD_LORA3A_H10) || defined(BOARD_SAMR34_XPRO)
+#if defined(BOARD_BERTA_H10) || defined(BOARD_SAMR34_XPRO)
   const uint32_t timeout = 10000;
   gpio_init(GPIO_PIN(PA, 13), GPIO_OUT);  // set switch RF to RFInput
   gpio_set(GPIO_PIN(PA, 13));
@@ -1061,7 +1061,7 @@ int vcc_cmd(int argc, char **argv) {
   return 0;
 }
 
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
 
 #if 0  // not working probably The temperature sensor is enabled/disabled by
        // setting/clearing the Temperature Sensor Enable bit in the Voltage
@@ -1399,7 +1399,7 @@ int beacon_cmd(int argc, char **argv) {
 	  int32_t vcc = adc_sample(0, ADC_RES_16BIT);
 
 	  // read vpanel and temp and hum now
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
 	  gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
 	  gpio_set(GPIO_PIN(PA, 27));
 #endif
@@ -1408,7 +1408,7 @@ int beacon_cmd(int argc, char **argv) {
 	  if (read_hdc(&temp, &hum)) {
 		puts("HDC3020 is unreadable!");
 	  }
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
 	  gpio_clear(GPIO_PIN(PA, 27));
 #endif
 	  strcpy(myargv0, "send_cmd");
@@ -1432,7 +1432,7 @@ int beacon_cmd(int argc, char **argv) {
 }
 
 
-#if defined(BOARD_LORA3A_H10) || defined(BOARD_LORA3A_SENSOR1)
+#if defined(BOARD_BERTA_H10) || defined(BOARD_LORA3A_SENSOR1)
 int tx_data(int argc, char **argv) {
   uint16_t dst = 0xffff;  // broadcast by default
 
@@ -1448,7 +1448,7 @@ int tx_data(int argc, char **argv) {
   int32_t vcc = adc_sample(0, ADC_RES_16BIT);
 
   // read vpanel and temp and hum now
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 27));
 #endif
@@ -1457,7 +1457,7 @@ int tx_data(int argc, char **argv) {
   if (read_hdc(&temp, &hum)) {
     puts("HDC2021 is unreadable!");
   }
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
   gpio_clear(GPIO_PIN(PA, 27));
 #endif
   strcpy(myargv0, "send_cmd");
@@ -1480,7 +1480,7 @@ static const shell_command_t shell_commands[] = {
     {"channel", "Get/Set channel frequency (in Hz)", channel_cmd},
     {"network", "Get/Set network identifier", network_cmd},
     {"address", "Get/Set network address", address_cmd},
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_BERTA_H10)
     {"boost", "Get/Set power boost mode", boost_cmd},
 #endif
     {"txpower", "Get/Set transmission power", txpower_cmd},
@@ -1489,7 +1489,7 @@ static const shell_command_t shell_commands[] = {
     {"beacon", "Send continuous packets with delay", beacon_cmd},
     {"listen", "Listen for packets", listen_cmd},
     {"sniff", "Get/Set packet sniffing mode", sniff_cmd},
-#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_BERTA_H10)
     {"txdata", "Send node data", tx_data},
 #endif
 #endif
@@ -1502,7 +1502,7 @@ static const shell_command_t shell_commands[] = {
     {"sleep", "Enter power save modes", sleep_cmd},
     {"debug", "Show SAML21 peripherals config", debug_cmd},
     {"vcc", "Read VCC from ADC", vcc_cmd},
-#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_LORA3A_SENSOR1) || defined(BOARD_BERTA_H10)
     {"vpanel", "Read VPanel from ADC", vpanel_cmd},
     //    { "cputemp",   "Read Internal CPU Temperature from ADC",   cputemp_cmd
     //    },
@@ -1705,7 +1705,7 @@ void master_beacon(int delay) {
   int32_t vcc = adc_sample(0, ADC_RES_16BIT);
 
   // read vpanel and temp and hum now
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
   gpio_init(GPIO_PIN(PA, 27), GPIO_OUT);
   gpio_set(GPIO_PIN(PA, 27));
 #endif
@@ -1714,7 +1714,7 @@ void master_beacon(int delay) {
   if (read_hdc(&temp, &hum)) {
     puts("HDC2021 is unreadable!");
   }
-#ifdef BOARD_LORA3A_H10
+#ifdef BOARD_BERTA_H10
   gpio_clear(GPIO_PIN(PA, 27));
 #endif
   uint16_t dst = 0xffff;  // broadcast by default
@@ -1782,7 +1782,7 @@ int main(void) {
   sx127x_set_sleep(&sx127x);
   spi_release(sx127x.params.spi);
   spi_deinit_pins(sx127x.params.spi);
-#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_LORA3A_H10)
+#if defined(BOARD_SAMR34_XPRO) || defined(BOARD_BERTA_H10)
   gpio_clear(TCXO_PWR_PIN);
   gpio_clear(TX_OUTPUT_SEL_PIN);
 #endif

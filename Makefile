@@ -58,6 +58,7 @@ ifeq ($(BOARD),lora3a-h10)
 # # TODO:
 # # - understand why we (0x59 << 1) is needed as address
 # # - bus is off at boot, we should not call sys/auto_init/security/auto_init_atca.c
+endif
 
 ifeq ($(BME688_ACME0), 1)
   USEMODULE += bme680_fp bme680_i2c
@@ -91,7 +92,6 @@ endif
 # # TODO:
 # # - change to RIOT/drivers/lis2dh12/lis2dh12.c line 471: we need int on FALLING edge
 # # - bus is off at boot, we should not call drivers/saul/init_devs/auto_init_lis2dh12.c
-endif
 
 # TEST: ds18 on Acme Sensor 1
 ifeq ($(DS18_ACME1), 1)
@@ -110,7 +110,7 @@ endif
 # TEST: SPS30 on Acme Sensor 1
 ifeq ($(SPS30_ACME1), 1)
   USEMODULE += sps30
-  CFLAGS += -DACME1_BUS_MODE=MODE_I2C -DPARAM_SPS30_I2C=ACME1_I2C_DEV -DI2C0_SPEED=I2C_SPEED_NORMAL
+  CFLAGS += -DACME1_BUS_MODE=MODE_I2C -DSPS30_PARAM_I2C_DEV=ACME1_I2C_DEV
 endif
 
 CFLAGS += -DTHREAD_STACKSIZE_IDLE=THREAD_STACKSIZE_DEFAULT
